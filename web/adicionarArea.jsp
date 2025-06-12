@@ -3,24 +3,34 @@
 <%
     String nombre = request.getParameter("nombre");
     if (nombre != null) {
-        Area a = new Area();
-        a.setNombre(nombre);
-        a.save();
+        try {
+            Area a = new Area();
+            a.setNombre(nombre.trim());
+            a.save();
+        } catch (Exception e) {
+        }
 %>
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Guardando Área...</title>
+  <title>Cerrando...</title>
 </head>
 <body>
   <script>
-    if (window.parent && typeof window.parent.closeParentModal === 'function') {
-      window.parent.closeParentModal();
-      window.parent.location.reload();
-    } else {
+    try {
+      if (window.parent) {
+        var modal = window.parent.document.getElementById('modal');
+        if (modal) {
+          modal.style.display = 'none';
+        }
+        window.parent.location.reload();
+      }
+    } catch(e){}
+    try {
+      window.open('', '_self');
       window.close();
-    }
+    } catch(e){}
   </script>
 </body>
 </html>
@@ -37,11 +47,16 @@
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/style.css">
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/all.min.css">
+  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
 
   <style>
     :root {
       --bg: #1f1f2e;
       --text: #e0e0e0;
+      --accent: #007bff;
+      --danger: #dc3545;
+      --radius: 6px;
+      --font: 'Segoe UI', sans-serif;
     }
     html, body {
       margin: 0;
@@ -53,7 +68,7 @@
       background-position: center;
       background-repeat: no-repeat;
       color: var(--text);
-      font-family: 'Segoe UI', sans-serif;
+      font-family: var(--font);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -63,8 +78,9 @@
       max-width: 400px;
       background: rgba(255,255,255,0.95);
       padding: 20px;
-      border-radius: 6px;
+      border-radius: var(--radius);
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      position: relative;
     }
     h2 {
       font-size: 1.5rem;
@@ -103,29 +119,34 @@
       gap: 6px;
     }
     .buttons .cancel {
-      background: #6c757d;
-      color: #fff;
+      background: var(--danger);
+      color: var(--light);
+      font-weight: bold;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+    .buttons .cancel:hover {
+      background: #bd2130;
+      transform: scale(1.05);
     }
     .buttons .save {
-      background: #007bff;
-      color: #fff;
+      background: var(--accent);
+      color: var(--light);
     }
   </style>
 
   <script>
-    function closeModal() {
-      if (window.parent && typeof window.parent.closeParentModal === 'function') {
-        window.parent.closeParentModal();
-      } else {
-        window.close();
-      }
-    }
-    function closeAndRefresh() {
-      if (window.parent && typeof window.parent.closeParentModal === 'function') {
-        window.parent.closeParentModal();
-        window.parent.location.reload();
-      } else {
-        window.close();
+    function closeModalOrWindow() {
+      try {
+        var modal = window.parent.document.getElementById('modal');
+        if (modal) {
+          modal.style.display = 'none';
+        } else {
+          window.open('', '_self');
+          window.close();
+        }
+      } catch(e){
+        try { window.open('', '_self'); window.close(); } catch(e){}
       }
     }
   </script>
@@ -133,11 +154,11 @@
 <body>
   <div class="form-container">
     <h2>Añadir Nueva Área</h2>
-    <form method="post" onsubmit="setTimeout(closeAndRefresh, 100);">
+    <form method="post">
       <label for="nombre">Nombre del Área</label>
       <input type="text" id="nombre" name="nombre" placeholder="Ej. Contabilidad" required autofocus>
       <div class="buttons">
-        <button type="button" class="cancel" onclick="closeModal()">
+        <button type="button" class="cancel" onclick="closeModalOrWindow()">
           <i class="fas fa-times"></i> Cerrar
         </button>
         <button type="submit" class="save">

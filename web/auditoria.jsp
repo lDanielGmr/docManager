@@ -1,126 +1,156 @@
 <%@ page import="
-    java.sql.*,
-    java.util.*,
+    java.sql.Connection,
+    java.sql.PreparedStatement,
+    java.sql.ResultSet,
+    java.sql.SQLException,
+    java.util.ArrayList,
+    java.util.HashMap,
+    java.util.HashSet,
+    java.util.List,
+    java.util.Map,
+    java.util.Set,
     java.text.SimpleDateFormat,
+    java.net.URLEncoder,
+    ConexionBD.conexionBD,
     clasesGenericas.Usuario
 " %>
 <%@ page contentType="text/html; charset=UTF-8" language="java" session="true" %>
 <%@ include file="menu.jsp" %>
-
 <%
     Usuario usuarioSesion = (Usuario) session.getAttribute("user");
     if (usuarioSesion == null) {
         response.sendRedirect("index.jsp");
         return;
     }
+    int userRolId = usuarioSesion.getRol().getId();
 
     boolean puedeBuscar = false;
-    Integer pidBuscar = mapaPermisos.get("ver_busquedas");
-    if (pidBuscar != null && permisosRol.contains(pidBuscar)) {
-        puedeBuscar = true;
+    String claveVer = "ver_busquedas";
+    try (Connection connPerm = conexionBD.conectar();
+         PreparedStatement pstPerm = connPerm.prepareStatement(
+             "SELECT 1 FROM rol_permiso rp JOIN permiso p ON rp.permiso_id = p.id " +
+             "WHERE rp.rol_id = ? AND p.nombre = ?"
+         )) {
+        pstPerm.setInt(1, userRolId);
+        pstPerm.setString(2, claveVer);
+        try (ResultSet rsPerm = pstPerm.executeQuery()) {
+            if (rsPerm.next()) {
+                puedeBuscar = true;
+            }
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+    if (!puedeBuscar) {
+        out.write("<h3 style='color:red;text-align:center;'>No tienes permiso para ver auditoría.</h3>");
+        return;
     }
 
     String nombre     = request.getParameter("nombre");
     String usuarioId  = request.getParameter("usuario");
-    String accion     = request.getParameter("accion");
     String fechaDesde = request.getParameter("fechaDesde");
     String fechaHasta = request.getParameter("fechaHasta");
-    int pagina = 1;
+    int    pagina     = 1;
     try {
-        pagina = Integer.parseInt(request.getParameter("pagina"));
-        if (pagina < 1) pagina = 1;
-    } catch (Exception e) { pagina = 1; }
-
-    int limite = 10;
-    int offset = (pagina - 1) * limite;
-
-    SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
+        String pParam = request.getParameter("pagina");
+        if (pParam != null) {
+            pagina = Integer.parseInt(pParam);
+            if (pagina < 1) pagina = 1;
+        }
+    } catch (NumberFormatException ignored) { }
 
     List<Map<String,Object>> usuarios = new ArrayList<>();
-    try (Connection con = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/gestion_documental?useSSL=false&serverTimezone=America/Bogota",
-            "root","admin");
-         Statement st = con.createStatement();
-         ResultSet rsUsuarios = st.executeQuery("SELECT id, nombre FROM usuario")) {
-        while (rsUsuarios.next()) {
+    try (Connection con = conexionBD.conectar();
+         PreparedStatement pst = con.prepareStatement("SELECT id, nombre FROM usuario ORDER BY nombre");
+         ResultSet rs = pst.executeQuery()) {
+        while (rs.next()) {
             Map<String,Object> u = new HashMap<>();
-            u.put("id",     rsUsuarios.getInt("id"));
-            u.put("nombre", rsUsuarios.getString("nombre"));
+            u.put("id",     rs.getInt("id"));
+            u.put("nombre", rs.getString("nombre"));
             usuarios.add(u);
         }
+    } catch (SQLException e) {
+        e.printStackTrace();
     }
 
+    // Construir la parte de SQL sin filtro de acción
     StringBuilder sqlBase = new StringBuilder(
         "FROM audit_log al " +
-        "JOIN usuario u ON al.usuario_id=u.id " +
-        "JOIN documento d ON al.documento_id=d.id WHERE 1=1"
+        "JOIN usuario u ON al.usuario_id = u.id " +
+        "JOIN documento d ON al.documento_id = d.id " +
+        "WHERE 1=1"
     );
     List<Object> params = new ArrayList<>();
     if (nombre != null && !nombre.trim().isEmpty()) {
-        sqlBase.append(" AND d.titulo LIKE ?");
-        params.add("%" + nombre.trim() + "%");
+        sqlBase.append(" AND d.titulo = ?");
+        params.add(nombre.trim());
     }
     if (usuarioId != null && !"todos".equals(usuarioId)) {
-        sqlBase.append(" AND u.id=?");
+        sqlBase.append(" AND u.id = ?");
         params.add(Integer.valueOf(usuarioId));
     }
-    if (accion != null && !"todos".equals(accion)) {
-        sqlBase.append(" AND al.accion=?");
-        params.add(accion);
-    }
     if (fechaDesde != null && !fechaDesde.isEmpty()) {
-        sqlBase.append(" AND al.timestamp>=?");
+        sqlBase.append(" AND al.timestamp >= ?");
         params.add(fechaDesde + " 00:00:00");
     }
     if (fechaHasta != null && !fechaHasta.isEmpty()) {
-        sqlBase.append(" AND al.timestamp<=?");
+        sqlBase.append(" AND al.timestamp <= ?");
         params.add(fechaHasta + " 23:59:59");
     }
 
+    int limite = 10;
+    int offset = (pagina - 1) * limite;
     int totalRegistros = 0;
-    try (Connection con = DriverManager.getConnection(
-             "jdbc:mysql://localhost:3306/gestion_documental?useSSL=false&serverTimezone=America/Bogota",
-             "root","admin");
+    try (Connection con = conexionBD.conectar();
          PreparedStatement pstCount = con.prepareStatement("SELECT COUNT(*) " + sqlBase.toString())) {
         for (int i = 0; i < params.size(); i++) {
-            pstCount.setObject(i+1, params.get(i));
+            pstCount.setObject(i + 1, params.get(i));
         }
         try (ResultSet rsCount = pstCount.executeQuery()) {
-            if (rsCount.next()) totalRegistros = rsCount.getInt(1);
+            if (rsCount.next()) {
+                totalRegistros = rsCount.getInt(1);
+            }
         }
+    } catch (SQLException e) {
+        e.printStackTrace();
     }
-    int totalPaginas = (int) Math.ceil(totalRegistros / (double)limite);
+    int totalPaginas = (int) Math.ceil(totalRegistros / (double) limite);
+    if (pagina > totalPaginas) pagina = totalPaginas > 0 ? totalPaginas : 1;
 
     List<Map<String,String>> logs = new ArrayList<>();
-    try (Connection con = DriverManager.getConnection(
-             "jdbc:mysql://localhost:3306/gestion_documental?useSSL=false&serverTimezone=America/Bogota",
-             "root","admin");
-         PreparedStatement pstLogs = con.prepareStatement(
-             "SELECT u.nombre AS usuario, d.titulo AS documento, al.accion, al. timestamp " +
-             sqlBase.toString() + " ORDER BY al.timestamp DESC LIMIT ? OFFSET ?")) {
-
-        for (int i = 0; i < params.size(); i++) {
-            pstLogs.setObject(i+1, params.get(i));
+    SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss a");
+    String fetchSQL =
+        "SELECT u.nombre AS usuario, d.titulo AS documento, al.accion, al.timestamp " +
+        sqlBase.toString() + " ORDER BY al.timestamp DESC LIMIT ? OFFSET ?";
+    try (Connection con = conexionBD.conectar();
+         PreparedStatement pstLogs = con.prepareStatement(fetchSQL)) {
+        int idx = 1;
+        for (Object p : params) {
+            pstLogs.setObject(idx++, p);
         }
-        pstLogs.setInt(params.size()+1, limite);
-        pstLogs.setInt(params.size()+2, offset);
-
+        pstLogs.setInt(idx++, limite);
+        pstLogs.setInt(idx   , offset);
         try (ResultSet rsLogs = pstLogs.executeQuery()) {
             while (rsLogs.next()) {
                 Map<String,String> r = new HashMap<>();
                 r.put("usuario",   rsLogs.getString("usuario"));
                 r.put("documento", rsLogs.getString("documento"));
                 r.put("accion",    rsLogs.getString("accion"));
-                Timestamp ts = rsLogs.getTimestamp("timestamp");
+                java.sql.Timestamp ts = rsLogs.getTimestamp("timestamp");
                 r.put("fechaHora", ts != null ? sdf.format(ts) : "");
                 logs.add(r);
             }
         }
+    } catch (SQLException e) {
+        e.printStackTrace();
     }
 
-    int startPage = Math.max(1, pagina-1);
-    int endPage   = Math.min(totalPaginas, startPage+2);
-    if (endPage - startPage < 2) startPage = Math.max(1, endPage-2);
+    int windowSize = 3;
+    int startPage = Math.max(1, pagina - windowSize/2);
+    int endPage   = Math.min(totalPaginas, startPage + windowSize - 1);
+    if (endPage - startPage < windowSize - 1) {
+        startPage = Math.max(1, endPage - windowSize + 1);
+    }
 %>
 
 <!DOCTYPE html>
@@ -128,234 +158,156 @@
 <head>
   <meta charset="UTF-8">
   <title>Auditoría</title>
-  <link rel="stylesheet" href="style.css">
+
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
+  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
+
   <style>
-        :root {
-    --bg: #1f1f2e;
-    --accent: #9d7aed;
-    --text: #e0e0e0;
-    --light: #fff;
-    --shadow: rgba(0, 0, 0, 0.4);
-  }
-  html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow-y: auto;
-  }
-  * {
-    box-sizing: border-box;
-    font-family: 'Poppins', sans-serif;
-  }
-
-  .menu-container {
-    width: 100%;
-    max-width: 960px; 
-    margin: 20px auto;
-    padding: 0 10px;
-  }
-
-  .menu-box {
-    background: #fff;
-    padding: 16px; 
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    line-height: 1.5;
-  }
-
-  h2 {
-    font-size: 1.5rem; 
-    margin-bottom: 14px;
-    color: #333;
-  }
-
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 14px;
-  }
-
-  .toolbar button,
-  .toolbar input {
-    font-size: 0.9rem;
-    padding: 6px 10px; 
-    border-radius: 4px;
-  }
-
-  .toolbar input {
-    flex: 1;
-    border: 1px solid #ccc;
-  }
-
-  .docs-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 16px;
-  }
-
-  .docs-table th,
-  .docs-table td {
-    padding: 10px 6px; 
-    border: 1px solid #ddd;
-    font-size: 0.85rem;
-    word-break: break-word;
-  }
-
-  .docs-table th {
-    background: #f5f5f5;
-    text-transform: uppercase;
-  }
-
-  .docs-table tr:hover {
-    background: #fafafa;
-    cursor: pointer;
-  }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .actions button {
-    font-size: 0.85rem;
-    padding: 6px 12px;
-    border-radius: 4px;
-  }
-
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal-content {
-    background: #fff;
-    width: 90%;
-    max-width: 760px; 
-    height: auto;
-    border-radius: 6px;
-    position: relative;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
-
-  .modal-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: transparent;
-    border: none;
-    font-size: 1.4rem;
-    cursor: pointer;
-  }
-
-  .modal-iframe {
-    width: 100%;
-    height: 580px;
-    border: none;
-    border-radius: 0 0 6px 6px;
-  }
-
-  tr.select    background: #e6f7ff !important;
-  }
-  html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow-y: auto;
-  background: var(--bg);
-  color: var(--text); 
-}
-
-* {
-  box-sizing: border-box;
-  font-family: 'Poppins', sans-serif;
-  color: inherit; 
-}
-
-.menu-box {
-  background: #fff;
-  color: #000;
-}
-
-.shortcut-tags {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-
-.shortcut-tags .card {
-  flex: 1 1 45%; 
-  background: #fdfdfd;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 16px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-}
-
-.shortcut-tags .card h2 {
-  font-size: 1.2rem;
-  margin-bottom: 10px;
-  color: #444;
-}
-
-.shortcut-tags ul {
-  list-style: none;
-  padding-left: 0;
-  margin: 0;
-}
-
-.shortcut-tags li {
-  margin-bottom: 8px;
-  font-size: 0.95rem;
-  color: #222;
-  display: flex;
-  align-items: center;	
-}
-
-.shortcut-tags li i {
-  margin-right: 6px;
-  color: var(--accent);
-}
-
-    :root { --accent:#9d7aed; --input-bg:#f8f9fa; --hover-row:#f0f0f0; }
-    body, * { font-family:Poppins,sans-serif; box-sizing:border-box; }
-    .menu-container { max-width:1000px; margin:40px auto; padding:0 20px; }
-    .menu-box { background:#fff; padding:24px; border-radius:8px;
-               box-shadow:0 6px 20px rgba(0,0,0,0.15); }
-    .toolbar-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
-    .toolbar-row input, .toolbar-row select {
-      padding:8px; border:1px solid #ccc; border-radius:4px;
-      background:var(--input-bg); flex:1; min-width:160px;
+    :root {
+      --bg: #1f1f2e;
+      --accent: #007bff;
+      --text: #e0e0e0;
+      --input-bg: #f8f9fa;
+      --hover-row: #f0f0f0;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow-y: auto;
+      background: url('${pageContext.request.contextPath}/images/login-bg.jpg') no-repeat center center fixed;
+      background-size: cover;
+      color: var(--text);
+    }
+    * {
+      box-sizing: border-box;
+      font-family: 'Poppins', sans-serif;
+      color: inherit;
+    }
+    .menu-container {
+      width: 100%;
+      max-width: 960px;
+      margin: 20px auto;
+      padding: 0 10px;
+    }
+    .menu-box {
+      background: #fff;
+      padding: 24px;
+      border-radius: 8px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+      color: #000;
+    }
+    h2 {
+      font-size: 1.5rem;
+      margin-bottom: 14px;
+      color: #333;
+    }
+    .toolbar-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .toolbar-row input,
+    .toolbar-row select {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: var(--input-bg);
+      flex: 1;
+      min-width: 160px;
+      font-size: 0.9rem;
+      position: relative;
+      z-index: 1;
     }
     .toolbar-row button {
-      padding:6px 14px; border:1px solid #000; cursor:pointer; transition:.2s;
+      padding: 6px 14px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background .2s;
+      font-size: 0.9rem;
     }
-    .toolbar-row button:hover { background:#000; color:#fff; }
-    .docs-table { width:100%; border-collapse:collapse; margin-top:20px; }
-    .docs-table th, .docs-table td {
-      padding:10px; border:1px solid #e0e0e0; text-align:left;
+    .toolbar-row button:hover {
+      background: #0056b3;
     }
-    .docs-table th { background:#f1f1f1; text-transform:uppercase; }
-    .docs-table tr:hover { background:var(--hover-row); }
-    .pagination { display:flex; justify-content:center; gap:8px; margin-top:20px; }
+
+    #suggestions {
+      position: absolute;
+      top: 38px;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-top: none;
+      max-height: 150px;
+      overflow-y: auto;
+      z-index: 1000;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: none;
+    }
+    #suggestions li {
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #333;
+    }
+    #suggestions li:hover {
+      background: #f0f0f0;
+    }
+
+    .docs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      margin-bottom: 16px;
+    }
+    .docs-table th,
+    .docs-table td {
+      padding: 10px 6px;
+      border: 1px solid #e0e0e0;
+      text-align: left;
+      font-size: 0.85rem;
+      word-break: break-word;
+      color: #333;
+    }
+    .docs-table th {
+      background: #f1f1f1;
+      text-transform: uppercase;
+    }
+    .docs-table tr:hover {
+      background: var(--hover-row);
+    }
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    .pagination a {
+      text-decoration: none;
+    }
     .pagination button {
-      padding:10px 16px; border:none; border-radius:4px;
-      background:var(--accent); color:#fff; cursor:pointer;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
     }
-    .pagination button[disabled] { background:#ccc; cursor:default; }
-    .pagination .current { background:#4e32a8; font-weight:bold; }
+    .pagination button[disabled] {
+      background: #ccc;
+      cursor: default;
+    }
+    .pagination .current {
+      background: #0056b3;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -363,111 +315,177 @@
     <div class="menu-box">
       <h2>Auditoría</h2>
 
-      <% if (puedeBuscar) { %>
-        <div class="toolbar-row">
-          <input type="text" id="nombre" placeholder="Nombre documento"
-                 value="<%= nombre!=null?nombre:"" %>">
-          <button onclick="buscar()"><i class="fas fa-search"></i> Buscar</button>
-        </div>
-        <div class="toolbar-row">
-          <select id="usuario">
-            <option value="todos">Usuario: todos</option>
-            <% for (Map<String,Object> u : usuarios) { %>
-              <option value="<%=u.get("id")%>"
-                <%= usuarioId!=null&&usuarioId.equals(u.get("id").toString())?"selected":"" %>>
-                <%=u.get("nombre")%>
-              </option>
-            <% } %>
-          </select>
-          <select id="accion">
-            <option value="todos">Acción: todos</option>
-            <% Set<String> accionesSet=new LinkedHashSet<>(); 
-               for(Map<String,String> r:logs) accionesSet.add(r.get("accion"));
-               for(String a:accionesSet){ %>
-              <option value="<%=a%>"
-                <%= accion!=null&&accion.equals(a)?"selected":"" %>>
-                <%=a%>
-              </option>
-            <% } %>
-          </select>
-          <input type="date" id="fechaDesde" value="<%=fechaDesde!=null?fechaDesde:"" %>">
-          <input type="date" id="fechaHasta" value="<%=fechaHasta!=null?fechaHasta:"" %>">
-          <button onclick="filtrar()"><i class="fas fa-filter"></i> Filtrar</button>
-          <button onclick="limpiar()"><i class="fas fa-eraser"></i> Limpiar</button>
-        </div>
-      <% } %>
+      <div class="toolbar-row">
+        <input type="text" id="nombre" autocomplete="off" placeholder="Título documento"
+               value="<%= nombre != null ? nombre : "" %>">
+        <ul id="suggestions"></ul>
+
+        <select id="usuario">
+          <option value="todos">Usuario: todos</option>
+          <% for (Map<String,Object> u : usuarios) { %>
+            <option value="<%= u.get("id") %>"
+              <%= (usuarioId != null && usuarioId.equals(u.get("id").toString())) ? "selected" : "" %>>
+              <%= u.get("nombre") %>
+            </option>
+          <% } %>
+        </select>
+
+        <input type="date" id="fechaDesde" value="<%= fechaDesde != null ? fechaDesde : "" %>">
+        <input type="date" id="fechaHasta" value="<%= fechaHasta != null ? fechaHasta : "" %>">
+        <button onclick="aplicarFiltro()"><i class="fas fa-filter"></i> Aplicar</button>
+        <button onclick="limpiarFiltro()"><i class="fas fa-eraser"></i> Limpiar</button>
+      </div>
 
       <table class="docs-table">
         <thead>
           <tr>
-            <th>Usuario</th><th>Documento</th><th>Acción</th><th>Fecha / Hora</th>
+            <th>Usuario</th>
+            <th>Documento</th>
+            <th>Acción</th>
+            <th>Fecha / Hora</th>
           </tr>
         </thead>
         <tbody>
           <% if (logs.isEmpty()) { %>
-            <tr><td colspan="4" style="text-align:center">No hay registros</td></tr>
-          <% } else {
-               for(Map<String,String> r:logs){ %>
             <tr>
-              <td><%=r.get("usuario")%></td>
-              <td><%=r.get("documento")%></td>
-              <td><%=r.get("accion")%></td>
-              <td><%=r.get("fechaHora")%></td>
+              <td colspan="4" style="text-align:center;">No hay registros</td>
             </tr>
-          <% } } %>
+          <% } else {
+               for (Map<String,String> r : logs) { %>
+            <tr>
+              <td><%= r.get("usuario") %></td>
+              <td><%= r.get("documento") %></td>
+              <td><%= r.get("accion") %></td>
+              <td><%= r.get("fechaHora") %></td>
+            </tr>
+          <%   }
+             } %>
         </tbody>
       </table>
 
       <div class="pagination">
-        <a href="auditoria.jsp?pagina=1
-           <%= nombre!=null?"&nombre="+java.net.URLEncoder.encode(nombre,"UTF-8"):"" %>
-           <%= usuarioId!=null?"&usuario="+usuarioId:"" %>
-           <%= accion!=null?"&accion="+accion:"" %>
-           <%= fechaDesde!=null?"&fechaDesde="+fechaDesde:"" %>
-           <%= fechaHasta!=null?"&fechaHasta="+fechaHasta:"" %>">
-          <button <%=pagina==1?"disabled":""%>>«</button>
+        <% String baseUrl = "auditoria.jsp"; %>
+        <% 
+          StringBuilder qsBase = new StringBuilder();
+          if (nombre != null && !nombre.trim().isEmpty()) {
+            qsBase.append("&nombre=").append(URLEncoder.encode(nombre, "UTF-8"));
+          }
+          if (usuarioId != null && !"todos".equals(usuarioId)) {
+            qsBase.append("&usuario=").append(usuarioId);
+          }
+          if (fechaDesde != null && !fechaDesde.isEmpty()) {
+            qsBase.append("&fechaDesde=").append(fechaDesde);
+          }
+          if (fechaHasta != null && !fechaHasta.isEmpty()) {
+            qsBase.append("&fechaHasta=").append(fechaHasta);
+          }
+        %>
+
+        <a href="<%= baseUrl + "?pagina=1" + qsBase.toString() %>">
+          <button <%= (pagina == 1) ? "disabled" : "" %>><i class="fas fa-angle-double-left"></i></button>
         </a>
-        <% for(int i=startPage;i<=endPage;i++){
-             String url="auditoria.jsp?pagina="+i
-               +(nombre!=null?"&nombre="+java.net.URLEncoder.encode(nombre,"UTF-8"):"")
-               +(usuarioId!=null?"&usuario="+usuarioId:"")
-               +(accion!=null?"&accion="+accion:"")
-               +(fechaDesde!=null?"&fechaDesde="+fechaDesde:"")
-               +(fechaHasta!=null?"&fechaHasta="+fechaHasta:""); %>
-          <a href="<%=url%>">
-            <button class="<%=i==pagina?"current":""%>"><%=i%></button>
+        <a href="<%= baseUrl + "?pagina=" + (pagina > 1 ? pagina - 1 : 1) + qsBase.toString() %>">
+          <button <%= (pagina == 1) ? "disabled" : "" %>><i class="fas fa-angle-left"></i></button>
+        </a>
+
+        <% for (int p = startPage; p <= endPage; p++) {
+             String url = baseUrl + "?pagina=" + p + qsBase.toString(); %>
+          <a href="<%= url %>">
+            <button class="<%= (p == pagina) ? "current" : "" %>"><%= p %></button>
           </a>
         <% } %>
-        <a href="auditoria.jsp?pagina=<%=totalPaginas%>
-           <%= nombre!=null?"&nombre="+java.net.URLEncoder.encode(nombre,"UTF-8"):"" %>
-           <%= usuarioId!=null?"&usuario="+usuarioId:"" %>
-           <%= accion!=null?"&accion="+accion:"" %>
-           <%= fechaDesde!=null?"&fechaDesde="+fechaDesde:"" %>
-           <%= fechaHasta!=null?"&fechaHasta="+fechaHasta:"" %>">
-          <button <%=pagina==totalPaginas?"disabled":""%>>»</button>
+
+        <a href="<%= baseUrl + "?pagina=" + (pagina < totalPaginas ? pagina + 1 : totalPaginas) + qsBase.toString() %>">
+          <button <%= (pagina == totalPaginas) ? "disabled" : "" %>><i class="fas fa-angle-right"></i></button>
+        </a>
+        <a href="<%= baseUrl + "?pagina=" + totalPaginas + qsBase.toString() %>">
+          <button <%= (pagina == totalPaginas) ? "disabled" : "" %>><i class="fas fa-angle-double-right"></i></button>
         </a>
       </div>
     </div>
   </div>
 
   <script>
-    function buscar() {
-      const n=encodeURIComponent(document.getElementById('nombre').value.trim());
-      const p=new URLSearchParams(location.search);
-      if(n)p.set('nombre',n);else p.delete('nombre');
-      location.href='auditoria.jsp?'+p;
+    function createSuggestionItem(text) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      return li;
     }
-    function filtrar(){
-      const p=new URLSearchParams();
-      ['usuario','accion','fechaDesde','fechaHasta'].forEach(id=>{
-        const v=document.getElementById(id).value;
-        if(v&&v!=='todos')p.set(id,v);
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const input = document.getElementById('nombre');
+      const suggestionBox = document.getElementById('suggestions');
+
+      let debounceTimeout;
+      input.addEventListener('input', function() {
+        const term = this.value.trim();
+        clearTimeout(debounceTimeout);
+        if (term.length < 2) {
+          suggestionBox.style.display = 'none';
+          return;
+        }
+        debounceTimeout = setTimeout(function() {
+          fetch('buscarAuditoria.jsp?term=' + encodeURIComponent(term))
+            .then(response => response.json())
+            .then(data => {
+              suggestionBox.innerHTML = '';
+              if (data.length === 0) {
+                suggestionBox.style.display = 'none';
+                return;
+              }
+              data.forEach(item => {
+                const li = createSuggestionItem(item.titulo);
+                li.addEventListener('click', function() {
+                  input.value = item.titulo;
+                  suggestionBox.style.display = 'none';
+                  // Al hacer clic en la sugerencia, aplicar filtro automáticamente:
+                  aplicarFiltro();
+                });
+                suggestionBox.appendChild(li);
+              });
+              suggestionBox.style.display = 'block';
+            })
+            .catch(err => {
+              console.error('Error al obtener sugerencias:', err);
+              suggestionBox.style.display = 'none';
+            });
+        }, 300);
       });
-      const n=document.getElementById('nombre').value.trim();
-      if(n)p.set('nombre',n);
-      location.href='auditoria.jsp?'+p;
+
+      document.addEventListener('click', function(e) {
+        if (!input.contains(e.target) && !suggestionBox.contains(e.target)) {
+          suggestionBox.style.display = 'none';
+        }
+      });
+    });
+
+    function aplicarFiltro() {
+      const params = new URLSearchParams();
+      const nombreVal = document.getElementById('nombre').value.trim();
+      const usuarioVal = document.getElementById('usuario').value;
+      const desdeVal   = document.getElementById('fechaDesde').value;
+      const hastaVal   = document.getElementById('fechaHasta').value;
+
+      if (nombreVal) {
+        params.set('nombre', nombreVal);
+      }
+      if (usuarioVal && usuarioVal !== 'todos') {
+        params.set('usuario', usuarioVal);
+      }
+      if (desdeVal) {
+        params.set('fechaDesde', desdeVal);
+      }
+      if (hastaVal) {
+        params.set('fechaHasta', hastaVal);
+      }
+      params.set('pagina', '1');
+
+      window.location = 'auditoria.jsp?' + params.toString();
     }
-    function limpiar(){ location.href='auditoria.jsp'; }
+
+    function limpiarFiltro() {
+      window.location = 'auditoria.jsp';
+    }
   </script>
 </body>
 </html>

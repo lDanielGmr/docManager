@@ -35,6 +35,7 @@
     List<Usuario> usuarios     = Usuario.findAll();
     List<Etiqueta> etiquetasAll = Etiqueta.findAll();
     Set<Integer> etiquetasAsignadas = doc.getEtiquetaIds().stream().collect(Collectors.toSet());
+    boolean esPlant = doc.isEsPlantilla();
 %>
 <!DOCTYPE html>
 <html lang="es">
@@ -43,75 +44,11 @@
   <title>Editar Documento</title>
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/style.css">
+  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
+
   <style>
     :root {
-      --accent: #9d7aed;
-      --text: #333;
-      --light: #fff;
-      --radius: 6px;
-      --font: 'Poppins', sans-serif;
-    }
-    *, *::before, *::after { box-sizing: border-box; }
-    body {
-      font-family: var(--font);
-      color: var(--text);
-      margin: 0; padding: 20px;
-      background: url('${pageContext.request.contextPath}/images/login-bg.jpg') no-repeat center center fixed;
-      background-size: cover;
-    }
-    .container {
-      max-width: 600px; margin: auto;
-      background: var(--light);
-      padding: 24px; border-radius: var(--radius);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    h2 { margin-top: 0; color: #333; }
-    .meta { margin-bottom: 20px; font-weight: bold; }
-    .form-group { margin-bottom: 16px; }
-    label { display: block; margin-bottom: 4px; font-weight: 500; }
-    input[type=text], select, input[type=file] {
-      width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;
-      font-size: .95rem;
-    }
-    .inline { display: flex; align-items: center; }
-    .inline label { margin-left: 8px; font-weight: normal; }
-    .required { color: red; }
-    .buttons { text-align: right; margin-top: 24px; }
-    .btn-primary {
-      background: var(--accent); color: var(--light);
-      padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;
-    }
-    .btn-secondary {
-      background: #ccc; color: #333;
-      padding: 8px 16px; border: none; border-radius: 4px;
-      margin-right: 8px; cursor: pointer;
-    }
-    .disabled-label { color: #999; }
-
-    #uploadOverlay {
-      display: none;
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5);
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-    }
-    #uploadOverlay .overlay-content {
-      background: #fff;
-      padding: 1.5rem;
-      border-radius: 0.5rem;
-      text-align: center;
-      box-shadow: 0 0 0.5rem rgba(0,0,0,0.3);
-      width: 300px;
-    }
-    #uploadOverlay progress {
-      width: 100%;
-      margin-top: 1rem;
-    }
-    :root {
-      --accent: #9d7aed;
+      --accent: #007bff;
       --text: #333;
       --light: #fff;
       --radius: 6px;
@@ -138,12 +75,14 @@
       width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;
       font-size: .95rem;
     }
+    input[type="checkbox"] { margin-right: 8px; }
     .inline { display: flex; align-items: center; gap: 8px; }
     .btn { padding: 8px 16px; border: none; border-radius: 4px;
            cursor: pointer; font-size: .95rem; }
     .btn-primary { background: var(--accent); color: var(--light); }
     .btn-secondary { background: #ccc; color: #333; }
     .file-current { margin-left: 8px; font-style: italic; }
+    .disabled-label { color: #999; }
   </style>
 </head>
 <body>
@@ -153,13 +92,13 @@
     <form action="guardarDocumento.jsp" method="post" enctype="multipart/form-data">
       <input type="hidden" name="id" value="<%=doc.getId()%>"/>
 
-      <div class="form-group inline">
+s      <div class="form-group inline">
         <label>Archivo actual:</label>
         <span class="file-current"><%=doc.getNombreArchivo()%></span>
       </div>
       <div class="form-group inline">
-        <label for="nuevoArchivo">Archivo nuevo:</label>
-        <input type="file" id="nuevoArchivo" name="nuevoArchivo"/>
+        <label for="file">Archivo nuevo:</label>
+        <input type="file" id="file" name="file"/>
       </div>
 
       <div class="form-group">
@@ -169,21 +108,15 @@
       </div>
 
       <div class="form-group">
-        <label>Tipo:</label>
-        <div class="inline">
-          <input type="radio" id="tipoInforme" name="tipo" value="Informe"
-                 <%= "Informe".equals(doc.getTipo()) ? "checked" : "" %>/>
-          <label for="tipoInforme">Informe</label>
-          <input type="radio" id="tipoActa" name="tipo" value="Acta"
-                 <%= "Acta".equals(doc.getTipo()) ? "checked" : "" %>/>
-          <label for="tipoActa">Acta</label>
-        </div>
+        <label for="tipo">Tipo:</label>
+        <input type="text" id="tipo" name="tipo"
+               value="<%=doc.getTipo()%>" placeholder="Escriba el tipo…"/>
       </div>
 
       <div class="form-group">
         <label for="area">Área:</label>
         <input type="text" id="area" name="area"
-               value="<%=doc.getAreaNombre()%>" disabled/>
+               value="<%= user.getArea() != null ? user.getArea() : "-" %>" disabled/>
       </div>
 
       <div class="form-group inline">
@@ -200,25 +133,35 @@
                 onclick="añadirEtiqueta()">Añadir etiqueta</button>
       </div>
 
-      <div class="form-group">
-        <label for="recibidoPor">Recibido por:</label>
-        <select id="recibidoPor" name="recibidoPor" required>
-          <% for (Usuario u : usuarios) { %>
-            <option value="<%=u.getId()%>"
-              <%= (doc.getRecibidoPor()!=null && u.getId()==doc.getRecibidoPor())
-                  ? "selected" : "" %>>
-              <%=u.getNombre()%>
-            </option>
-          <% } %>
-        </select>
+      <div class="form-group inline">
+        <input type="checkbox" id="esPlantilla" name="esPlantilla"
+               <%= esPlant ? "checked" : "" %> />
+        <label for="esPlantilla">Es plantilla</label>
       </div>
 
       <div class="form-group">
-        <label for="radicadoA">Radicado a:</label>
-        <select id="radicadoA" name="radicadoA" required>
+        <label>Recibido por:</label>
+        <input type="text" value="<%=user.getNombre()%>" disabled />
+        <input type="hidden" name="recibidoPor" value="<%=user.getId()%>"/>
+      </div>
+
+      <div class="form-group">
+        <label id="labelRadicadoA">Radicado a:</label>
+        <input type="text"
+               id="radicadoAText"
+               value="No aplica"
+               disabled
+               class="disabled-label"
+               style="<%= esPlant ? "" : "display:none;" %>" />
+
+        <select id="radicadoASelect"
+                name="radicadoA"
+                <%= esPlant ? "style=\"display:none;\"" : "" %>
+                required>
+          <option value="">-- Seleccione --</option>
           <% for (Usuario u : usuarios) { %>
             <option value="<%=u.getId()%>"
-              <%= (doc.getRadicadoA()!=null && u.getId()==doc.getRadicadoA())
+              <%= (!esPlant && doc.getRadicadoA() != null && u.getId() == doc.getRadicadoA())
                   ? "selected" : "" %>>
               <%=u.getNombre()%>
             </option>
@@ -227,8 +170,9 @@
       </div>
 
       <div class="form-group inline">
-        <button type="submit" class="btn btn-primary">
-          <i class="fas fa-save"></i> Guardar
+        <button type="submit" id="submitBtn" class="btn btn-primary">
+          <i class="fas fa-save"></i>
+          <%= esPlant ? "Guardar" : "Enviar" %>
         </button>
         <button type="button" class="btn btn-secondary"
                 onclick="history.back()">
@@ -239,6 +183,31 @@
   </div>
 
   <script>
+    const chkPlant    = document.getElementById('esPlantilla');
+    const selRadicado = document.getElementById('radicadoASelect');
+    const txtRadicado = document.getElementById('radicadoAText');
+    const lblRadicado = document.getElementById('labelRadicadoA');
+    const btnSubmit   = document.getElementById('submitBtn');
+
+    function ajustarInterfaz() {
+      if (chkPlant.checked) {
+        selRadicado.style.display = 'none';
+        txtRadicado.style.display = '';
+        selRadicado.disabled = true;
+        lblRadicado.innerText = 'Radicado a: No aplica';
+        btnSubmit.innerHTML = '<i class="fas fa-save"></i> Guardar';
+      } else {
+        txtRadicado.style.display = 'none';
+        selRadicado.style.display = '';
+        selRadicado.disabled = false;
+        lblRadicado.innerText = 'Radicado a:';
+        btnSubmit.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
+      }
+    }
+
+    chkPlant.addEventListener('change', ajustarInterfaz);
+    ajustarInterfaz();
+
     async function añadirEtiqueta() {
       const nombre = prompt('Nombre de la nueva etiqueta:');
       if (!nombre) return;

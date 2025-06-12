@@ -1,8 +1,15 @@
 <%@ page import="
-    java.sql.*, 
-    java.util.*,
-    clasesGenericas.Usuario
-" %>
+         java.net.URLEncoder,
+         java.sql.Connection,
+         java.sql.PreparedStatement,
+         java.sql.ResultSet,
+         java.util.ArrayList,
+         java.util.HashMap,
+         java.util.List,
+         java.util.Map,
+         clasesGenericas.Usuario,
+         ConexionBD.conexionBD
+         " %>
 <%@ page contentType="text/html; charset=UTF-8" language="java" session="true" %>
 <%@ include file="menu.jsp" %>
 
@@ -12,343 +19,903 @@
         response.sendRedirect("index.jsp");
         return;
     }
+    int userId = usuarioSesion.getId();
+    int userRolId = -1;
+    String sqlRol = "SELECT rol_id FROM usuario WHERE id = ?";
+    try (Connection cnRol = conexionBD.conectar(); PreparedStatement psRol = cnRol.prepareStatement(sqlRol)) {
+        psRol.setInt(1, userId);
+        try (ResultSet rsRol = psRol.executeQuery()) {
+            if (rsRol.next()) {
+                userRolId = rsRol.getInt("rol_id");
+            }
+        }
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
 
-    String nombre       = request.getParameter("nombre");
-    String fechaDesde   = request.getParameter("fechaDesde");
-    String fechaHasta   = request.getParameter("fechaHasta");
-    String tipo         = request.getParameter("tipo");
-    String etiqueta     = request.getParameter("etiqueta");
+    boolean canSubirVersion = false;
+    if (userRolId != -1) {
+        String sqlPerm
+                = "SELECT 1 "
+                + "FROM rol_permiso rp "
+                + "JOIN permiso p ON rp.permiso_id = p.id "
+                + "WHERE rp.rol_id = ? AND p.codigo = ?";
+        try (Connection cn2 = conexionBD.conectar(); PreparedStatement psPerm = cn2.prepareStatement(sqlPerm)) {
+            psPerm.setInt(1, userRolId);
+            psPerm.setString(2, "subir_version");
+            try (ResultSet rsPerm = psPerm.executeQuery()) {
+                canSubirVersion = rsPerm.next();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    String numeroRadicadoParam = request.getParameter("numeroRadicado");
+    String tituloParam = request.getParameter("titulo");
+    String fechaDesdeParam = request.getParameter("fechaDesde");
+    String fechaHastaParam = request.getParameter("fechaHasta");
+    String tipoParam = request.getParameter("tipo");
+    String etiquetaParam = request.getParameter("etiqueta");
     boolean soloPlantillas = "on".equals(request.getParameter("soloPlantillas"));
 
-    StringBuilder sql = new StringBuilder(
-      "SELECT d.id, d.titulo, d.tipo, DATE(d.fecha_creacion) AS fecha " +
-      "FROM documento d " +
-      "LEFT JOIN docu_etiqueta de ON d.id = de.doc_id " +
-      "LEFT JOIN etiqueta e ON de.etq_id = e.id " +
-      "WHERE d.eliminado = 0"
-    );
-    List<Object> params = new ArrayList<>();
-    if (nombre != null && !nombre.trim().isEmpty()) {
-        sql.append(" AND d.titulo LIKE ?"); params.add("%"+nombre.trim()+"%");
-    }
-    if (fechaDesde != null && !fechaDesde.isEmpty()) {
-        sql.append(" AND d.fecha_creacion>=?"); params.add(fechaDesde+" 00:00:00");
-    }
-    if (fechaHasta != null && !fechaHasta.isEmpty()) {
-        sql.append(" AND d.fecha_creacion<=?"); params.add(fechaHasta+" 23:59:59");
-    }
-    if (tipo != null && !tipo.isEmpty()) {
-        sql.append(" AND d.tipo=?"); params.add(tipo);
-    }
-    if (etiqueta != null && !etiqueta.trim().isEmpty()) {
-        sql.append(" AND e.nombre=?"); params.add(etiqueta.trim());
-    }
-    if (soloPlantillas) {
-        sql.append(" AND d.es_plantilla=TRUE");
-    }
-    sql.append(" GROUP BY d.id ORDER BY d.fecha_creacion DESC");
+    boolean exactNumeroRadicado = "on".equals(request.getParameter("exactNumeroRadicado"));
+    boolean exactTitulo = "on".equals(request.getParameter("exactTitulo"));
+    boolean exactTipo = "on".equals(request.getParameter("exactTipo"));
+    boolean exactEtiqueta = "on".equals(request.getParameter("exactEtiqueta"));
 
-    List<Map<String,Object>> resultados = new ArrayList<>();
-    try {
-        String DB_URL  = "jdbc:mysql://localhost:3306/gestion_documental?useSSL=false&serverTimezone=UTC";
-        String DB_USER = "tu_usuario";
-        String DB_PASS = "tu_contraseña";
-        try (Connection con = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
-             PreparedStatement pst = con.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                pst.setObject(i+1, params.get(i));
+    boolean chkNumeroRadicado = "on".equals(request.getParameter("chkNumeroRadicado"));
+    boolean chkTitulo = "on".equals(request.getParameter("chkTitulo"));
+    boolean chkFecha = "on".equals(request.getParameter("chkFecha"));
+    boolean chkTipo = "on".equals(request.getParameter("chkTipo"));
+    boolean chkEtiqueta = "on".equals(request.getParameter("chkEtiqueta"));
+
+    boolean filtroActivo = soloPlantillas
+            || (chkNumeroRadicado && numeroRadicadoParam != null && !numeroRadicadoParam.trim().isEmpty())
+            || (chkTitulo && tituloParam != null && !tituloParam.trim().isEmpty())
+            || (chkFecha && ((fechaDesdeParam != null && !fechaDesdeParam.isEmpty()) || (fechaHastaParam != null && !fechaHastaParam.isEmpty())))
+            || (chkTipo && tipoParam != null && !tipoParam.trim().isEmpty())
+            || (chkEtiqueta && etiquetaParam != null && !etiquetaParam.trim().isEmpty());
+
+    final int PAGE_SIZE = 10;
+    int currentPage = 1;
+    String sp = request.getParameter("page");
+    if (sp != null) {
+        try {
+            currentPage = Integer.parseInt(sp);
+        } catch (NumberFormatException ignore) {
+        }
+    }
+    if (currentPage < 1) {
+        currentPage = 1;
+    }
+
+    int totalRows = 0;
+    int totalPages = 1;
+
+    if (filtroActivo) {
+        StringBuilder countSb = new StringBuilder(
+                "SELECT COUNT(DISTINCT d.id) "
+                + "FROM documento d "
+                + "LEFT JOIN docu_etiqueta de ON d.id = de.doc_id "
+                + "LEFT JOIN etiqueta e ON de.etq_id = e.id "
+                + "WHERE IFNULL(d.eliminado,0) = 0"
+        );
+        List<Object> countParams = new ArrayList<>();
+
+        if (soloPlantillas) {
+            countSb.append(" AND d.es_plantilla = TRUE");
+        } else {
+            countSb.append(" AND (d.es_plantilla = TRUE OR d.radicado_a = ? OR d.recibido_por = ?)");
+            countParams.add(userId);
+            countParams.add(userId);
+
+            if (chkNumeroRadicado && numeroRadicadoParam != null && !numeroRadicadoParam.trim().isEmpty()) {
+                if (exactNumeroRadicado) {
+                    countSb.append(" AND d.numero_radicado = ?");
+                    countParams.add(numeroRadicadoParam.trim());
+                } else {
+                    countSb.append(" AND d.numero_radicado LIKE ?");
+                    countParams.add("%" + numeroRadicadoParam.trim() + "%");
+                }
             }
-            try (ResultSet rs = pst.executeQuery()) {
-                while (rs.next()) {
-                    Map<String,Object> row = new HashMap<>();
-                    row.put("id",     rs.getInt("id"));
-                    row.put("titulo", rs.getString("titulo"));
-                    row.put("tipo",   rs.getString("tipo"));
-                    row.put("fecha",  rs.getDate("fecha"));
-                    resultados.add(row);
+            if (chkTitulo && tituloParam != null && !tituloParam.trim().isEmpty()) {
+                if (exactTitulo) {
+                    countSb.append(" AND d.titulo = ?");
+                    countParams.add(tituloParam.trim());
+                } else {
+                    countSb.append(" AND d.titulo LIKE ?");
+                    countParams.add("%" + tituloParam.trim() + "%");
+                }
+            }
+            if (chkFecha) {
+                if (fechaDesdeParam != null && !fechaDesdeParam.isEmpty()) {
+                    countSb.append(" AND d.fecha_creacion >= ?");
+                    countParams.add(fechaDesdeParam + " 00:00:00");
+                }
+                if (fechaHastaParam != null && !fechaHastaParam.isEmpty()) {
+                    countSb.append(" AND d.fecha_creacion <= ?");
+                    countParams.add(fechaHastaParam + " 23:59:59");
+                }
+            }
+            if (chkTipo && tipoParam != null && !tipoParam.trim().isEmpty()) {
+                if (exactTipo) {
+                    countSb.append(" AND d.tipo = ?");
+                    countParams.add(tipoParam.trim());
+                } else {
+                    countSb.append(" AND d.tipo LIKE ?");
+                    countParams.add("%" + tipoParam.trim() + "%");
+                }
+            }
+            if (chkEtiqueta && etiquetaParam != null && !etiquetaParam.trim().isEmpty()) {
+                if (exactEtiqueta) {
+                    countSb.append(" AND e.nombre = ?");
+                    countParams.add(etiquetaParam.trim());
+                } else {
+                    countSb.append(" AND e.nombre LIKE ?");
+                    countParams.add("%" + etiquetaParam.trim() + "%");
                 }
             }
         }
-    } catch (SQLException e) {
-        e.printStackTrace();
+
+        try (Connection conn = conexionBD.conectar(); PreparedStatement pstCount = conn.prepareStatement(countSb.toString())) {
+
+            for (int i = 0; i < countParams.size(); i++) {
+                pstCount.setObject(i + 1, countParams.get(i));
+            }
+            try (ResultSet rsCount = pstCount.executeQuery()) {
+                if (rsCount.next()) {
+                    totalRows = rsCount.getInt(1);
+                }
+            }
+        } catch (Exception e) {
+            totalRows = 0;
+            e.printStackTrace();
+        }
+
+        totalPages = Math.max(1, (int) Math.ceil((double) totalRows / PAGE_SIZE));
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+        }
+    }
+
+    List<Map<String, Object>> resultados = new ArrayList<>();
+    if (filtroActivo) {
+        StringBuilder sbq = new StringBuilder(
+                "SELECT d.id, d.titulo, d.numero_radicado, d.tipo, DATE(d.fecha_creacion) AS fecha, d.es_plantilla "
+                + "FROM documento d "
+                + "LEFT JOIN docu_etiqueta de ON d.id = de.doc_id "
+                + "LEFT JOIN etiqueta e ON de.etq_id = e.id "
+                + "WHERE IFNULL(d.eliminado,0) = 0"
+        );
+        List<Object> queryParams = new ArrayList<>();
+
+        if (soloPlantillas) {
+            sbq.append(" AND d.es_plantilla = TRUE");
+        } else {
+            sbq.append(" AND (d.es_plantilla = TRUE OR d.radicado_a = ? OR d.recibido_por = ?)");
+            queryParams.add(userId);
+            queryParams.add(userId);
+
+            if (chkNumeroRadicado && numeroRadicadoParam != null && !numeroRadicadoParam.trim().isEmpty()) {
+                if (exactNumeroRadicado) {
+                    sbq.append(" AND d.numero_radicado = ?");
+                    queryParams.add(numeroRadicadoParam.trim());
+                } else {
+                    sbq.append(" AND d.numero_radicado LIKE ?");
+                    queryParams.add("%" + numeroRadicadoParam.trim() + "%");
+                }
+            }
+            if (chkTitulo && tituloParam != null && !tituloParam.trim().isEmpty()) {
+                if (exactTitulo) {
+                    sbq.append(" AND d.titulo = ?");
+                    queryParams.add(tituloParam.trim());
+                } else {
+                    sbq.append(" AND d.titulo LIKE ?");
+                    queryParams.add("%" + tituloParam.trim() + "%");
+                }
+            }
+            if (chkFecha) {
+                if (fechaDesdeParam != null && !fechaDesdeParam.isEmpty()) {
+                    sbq.append(" AND d.fecha_creacion >= ?");
+                    queryParams.add(fechaDesdeParam + " 00:00:00");
+                }
+                if (fechaHastaParam != null && !fechaHastaParam.isEmpty()) {
+                    sbq.append(" AND d.fecha_creacion <= ?");
+                    queryParams.add(fechaHastaParam + " 23:59:59");
+                }
+            }
+            if (chkTipo && tipoParam != null && !tipoParam.trim().isEmpty()) {
+                if (exactTipo) {
+                    sbq.append(" AND d.tipo = ?");
+                    queryParams.add(tipoParam.trim());
+                } else {
+                    sbq.append(" AND d.tipo LIKE ?");
+                    queryParams.add("%" + tipoParam.trim() + "%");
+                }
+            }
+            if (chkEtiqueta && etiquetaParam != null && !etiquetaParam.trim().isEmpty()) {
+                if (exactEtiqueta) {
+                    sbq.append(" AND e.nombre = ?");
+                    queryParams.add(etiquetaParam.trim());
+                } else {
+                    sbq.append(" AND e.nombre LIKE ?");
+                    queryParams.add("%" + etiquetaParam.trim() + "%");
+                }
+            }
+        }
+
+        sbq.append(" GROUP BY d.id ORDER BY d.id DESC LIMIT ?, ?");
+        int offset = (currentPage - 1) * PAGE_SIZE;
+        queryParams.add(offset);
+        queryParams.add(PAGE_SIZE);
+
+        try (Connection conn = conexionBD.conectar(); PreparedStatement pst = conn.prepareStatement(sbq.toString())) {
+
+            for (int i = 0; i < queryParams.size(); i++) {
+                pst.setObject(i + 1, queryParams.get(i));
+            }
+            try (ResultSet rs = pst.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("id", rs.getInt("id"));
+                    row.put("titulo", rs.getString("titulo"));
+                    row.put("numero_radicado", rs.getString("numero_radicado"));
+                    row.put("tipo", rs.getString("tipo"));
+                    row.put("fecha", rs.getDate("fecha"));
+                    row.put("es_plantilla", rs.getBoolean("es_plantilla"));
+                    resultados.add(row);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 %>
+
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <title>Búsqueda Avanzada</title>
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
-<style>
-  :root {
-    --bg: #1f1f2e;
-    --accent: #9d7aed;
-    --text: #e0e0e0;
-    --light: #fff;
-    --shadow: rgba(0, 0, 0, 0.4);
-  }
-  html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    overflow-y: auto;
-  }
-  * {
-    box-sizing: border-box;
-    font-family: 'Poppins', sans-serif;
-  }
+    <head>
+        <meta charset="UTF-8">
+        <title>Búsqueda Avanzada</title>
+        <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
+        <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
 
-  .menu-container {
-    width: 100%;
-    max-width: 960px; 
-    margin: 20px auto;
-    padding: 0 10px;
-  }
+        <style>
+            :root {
+                --bg: #1f1f2e;
+                --accent: #007bff;
+                --text: #e0e0e0;
+                --light: #fff;
+                --shadow: rgba(0, 0, 0, 0.4);
+            }
+            html, body {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                overflow-y: auto;
+                background-image: url('<%=request.getContextPath()%>/images/login-bg.jpg');
+                background-repeat: no-repeat;
+                background-position: center center;
+                background-size: cover;
+                background-attachment: fixed;
+                background-color: var(--bg);
+                color: var(--text);
+            }
+            * {
+                box-sizing: border-box;
+                font-family: 'Poppins', sans-serif;
+            }
+            .menu-container {
+                width: 100%;
+                max-width: 960px;
+                margin: 20px auto;
+                padding: 0 10px;
+            }
+            .menu-box {
+                background: #fff;
+                padding: 16px;
+                border-radius: 4px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                line-height: 1.5;
+                color: #000;
+                position: relative;
+            }
+            h2 {
+                font-size: 1.5rem;
+                margin-bottom: 14px;
+                color: #333;
+            }
+            .toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 14px;
+                position: relative;
+            }
+            .toolbar label {
+                font-size: 0.9rem;
+                margin-right: 4px;
+                align-self: center;
+                color: #333;
+            }
+            .toolbar input[type="text"],
+            .toolbar input[type="date"] {
+                font-size: 0.9rem;
+                padding: 6px 10px;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+            }
+            .autocomplete-wrapper {
+                position: relative;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                flex: 1;
+            }
+            .autocomplete-wrapper.num-radicado {
+                flex: none;
+            }
+            .toolbar button,
+            .actions button,
+            .pagination li a {
+                font-size: 0.9rem;
+                padding: 6px 10px;
+                border-radius: 4px;
+                background: var(--accent);
+                color: #fff;
+                border: none;
+                cursor: pointer;
+            }
+            .toolbar button:hover,
+            .actions button:hover,
+            .pagination li a:hover:not(.disabled) {
+                opacity: 0.9;
+            }
+            .docs-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 16px;
+                background: #fff;
+                color: #000;
+            }
+            .docs-table th,
+            .docs-table td {
+                padding: 10px 6px;
+                border: 1px solid #ddd;
+                font-size: 0.85rem;
+                word-break: break-word;
+            }
+            .docs-table th {
+                background: #f5f5f5;
+                text-transform: uppercase;
+            }
+            .docs-table tr:hover {
+                background: #fafafa;
+                cursor: pointer;
+            }
+            .actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 6px;
+                flex-wrap: wrap;
+            }
+            .suggestions {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                width: 100%;
+                background: #fff;
+                border: 1px solid #ccc;
+                border-top: none;
+                max-height: 200px;
+                overflow-y: auto;
+                z-index: 100;
+                color: #000;
+                display: none;
+            }
+            .suggestion-item {
+                padding: 8px 10px;
+                cursor: pointer;
+                font-size: 0.9rem;
+            }
+            .suggestion-item:hover {
+                background: #f0f0f0;
+            }
+            .pagination {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                gap: 8px;
+                margin-top: 20px;
+                list-style: none;
+                padding: 0;
+                flex-wrap: wrap;
+            }
+            .pagination li.disabled a {
+                background: #ccc;
+                color: #666;
+                pointer-events: none;
+                cursor: default;
+            }
+            .pagination li.active a {
+                background: #004085;
+                font-weight: bold;
+                border: 2px solid #fff;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="menu-container">
+            <div class="menu-box">
+                <h2>Búsqueda Avanzada</h2>
 
-  .menu-box {
-    background: #fff;
-    padding: 16px;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    line-height: 1.5;
-  }
+                <section class="toolbar">
+                    <div class="autocomplete-wrapper num-radicado">
+                        <input id="chkNumeroRadicado" type="checkbox" name="chkNumeroRadicado" <%= chkNumeroRadicado ? "checked" : ""%>>
+                        <label for="chkNumeroRadicado">Por número radicado</label>
+                        <input
+                            id="inputNumeroRadicado"
+                            type="text"
+                            name="numeroRadicado"
+                            placeholder="Escribe número radicado..."
+                            value="<%= numeroRadicadoParam != null ? numeroRadicadoParam : ""%>"
+                            autocomplete="off">
+                        <div id="suggestionsNumeroRadicado" class="suggestions"></div>
+                    </div>
 
-  h2 {
-    font-size: 1.5rem; 
-    margin-bottom: 14px;
-    color: #333;
-  }
+                    <div class="autocomplete-wrapper">
+                        <input id="chkTitulo" type="checkbox" name="chkTitulo" <%= chkTitulo ? "checked" : ""%>>
+                        <label for="chkTitulo">Por título</label>
+                        <input
+                            id="inputTitulo"
+                            type="text"
+                            name="titulo"
+                            placeholder="Escribe título..."
+                            value="<%= tituloParam != null ? tituloParam : ""%>"
+                            autocomplete="off">
+                        <div id="suggestionsTitulo" class="suggestions"></div>
+                    </div>
 
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 14px;
-  }
+                    <div class="autocomplete-wrapper" style="flex: none;">
+                        <input id="chkFecha" type="checkbox" name="chkFecha" <%= chkFecha ? "checked" : ""%>>
+                        <label for="chkFecha">Por fecha</label>
+                        <label for="fechaDesde">Desde:</label>
+                        <input
+                            id="fechaDesde"
+                            type="date"
+                            name="fechaDesde"
+                            value="<%= fechaDesdeParam != null ? fechaDesdeParam : ""%>">
+                        <label for="fechaHasta">Hasta:</label>
+                        <input
+                            id="fechaHasta"
+                            type="date"
+                            name="fechaHasta"
+                            value="<%= fechaHastaParam != null ? fechaHastaParam : ""%>">
+                    </div>
 
-  .toolbar button,
-  .toolbar input {
-    font-size: 0.9rem;
-    padding: 6px 10px; 
-    border-radius: 4px;
-  }
+                    <div class="autocomplete-wrapper">
+                        <input id="chkTipo" type="checkbox" name="chkTipo" <%= chkTipo ? "checked" : ""%>>
+                        <label for="chkTipo">Por tipo</label>
+                        <input
+                            id="inputTipo"
+                            type="text"
+                            name="tipo"
+                            placeholder="Escribe tipo..."
+                            value="<%= tipoParam != null ? tipoParam : ""%>"
+                            autocomplete="off">
+                        <div id="suggestionsTipo" class="suggestions"></div>
+                    </div>
 
-  .toolbar input {
-    flex: 1;
-    border: 1px solid #ccc;
-  }
+                    <div class="autocomplete-wrapper">
+                        <input id="chkEtiqueta" type="checkbox" name="chkEtiqueta" <%= chkEtiqueta ? "checked" : ""%>>
+                        <label for="chkEtiqueta">Por etiqueta</label>
+                        <input
+                            id="inputEtiqueta"
+                            type="text"
+                            name="etiqueta"
+                            placeholder="Escribe etiqueta..."
+                            value="<%= etiquetaParam != null ? etiquetaParam : ""%>"
+                            autocomplete="off">
+                        <div id="suggestionsEtiqueta" class="suggestions"></div>
+                    </div>
 
-  .docs-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 16px;
-  }
+                    <div style="display: flex; align-items: center; gap: 4px; flex: none;">
+                        <input
+                            id="chkSoloPlantillas"
+                            type="checkbox"
+                            name="soloPlantillas"
+                            <%= soloPlantillas ? "checked" : ""%>>
+                        <label for="chkSoloPlantillas">Sólo plantillas</label>
+                    </div>
 
-  .docs-table th,
-  .docs-table td {
-    padding: 10px 6px;
-    border: 1px solid #ddd;
-    font-size: 0.85rem;
-    word-break: break-word;
-  }
+                    <button id="btnBuscar">
+                        <i class="fas fa-search"></i> Buscar
+                    </button>
+                    <button id="btnLimpiar">
+                        <i class="fas fa-eraser"></i> Limpiar
+                    </button>
+                </section>
 
-  .docs-table th {
-    background: #f5f5f5;
-    text-transform: uppercase;
-  }
+                <table class="docs-table" id="tablaDocs">
+                    <thead>
+                        <tr>
+                            <th>Número radicado</th>
+                            <th>Documento</th>
+                            <th>Tipo</th>
+                            <th>Fecha</th>
+                            <th>Plantilla</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% if (!filtroActivo) { %>
+                        <% } else if (resultados.isEmpty()) { %>
+                        <tr>
+                            <td colspan="6" style="text-align: center;">No se encontraron documentos</td>
+                        </tr>
+                        <% } else {
+              for (Map<String, Object> d : resultados) {%>
+                        <tr>
+                            <td><%= d.get("numero_radicado") != null ? d.get("numero_radicado") : ""%></td>
+                            <td><%= d.get("titulo")%></td>
+                            <td><%= d.get("tipo")%></td>
+                            <td><%= d.get("fecha")%></td>
+                            <td><%= ((Boolean) d.get("es_plantilla")) ? "Sí" : "No"%></td>
+                            <td class="actions">
+                                <button onclick="ver(<%= d.get("id")%>)">
+                                    <i class="fas fa-eye"></i> Ver
+                                </button>
+                                <button onclick="descargar(<%= d.get("id")%>)">
+                                    <i class="fas fa-download"></i> Descargar
+                                </button>
+                                <% if (canSubirVersion) {%>
+                                <button onclick="editar(<%= d.get("id")%>)">
+                                    <i class="fas fa-edit"></i> Editar
+                                </button>
+                                <% } %>
+                            </td>
 
-  .docs-table tr:hover {
-    background: #fafafa;
-    cursor: pointer;
-  }
+                        </tr>
+                        <%   }
+                            }
+                        %>
+                    </tbody>
+                </table>
 
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
+                <% if (filtroActivo && totalPages > 1) { %>
+                <ul class="pagination">
+                    <%
+                        String baseParams = "";
+                        if (soloPlantillas) {
+                            baseParams += "&soloPlantillas=on";
+                        } else {
+                            if (chkNumeroRadicado && numeroRadicadoParam != null && !numeroRadicadoParam.trim().isEmpty()) {
+                                baseParams += "&chkNumeroRadicado=on&numeroRadicado="
+                                        + URLEncoder.encode(numeroRadicadoParam.trim(), "UTF-8");
+                                if (exactNumeroRadicado) {
+                                    baseParams += "&exactNumeroRadicado=on";
+                                }
+                            }
+                            if (chkTitulo && tituloParam != null && !tituloParam.trim().isEmpty()) {
+                                baseParams += "&chkTitulo=on&titulo="
+                                        + URLEncoder.encode(tituloParam.trim(), "UTF-8");
+                                if (exactTitulo) {
+                                    baseParams += "&exactTitulo=on";
+                                }
+                            }
+                            if (chkFecha && fechaDesdeParam != null && !fechaDesdeParam.isEmpty()) {
+                                baseParams += "&chkFecha=on&fechaDesde=" + fechaDesdeParam;
+                            }
+                            if (chkFecha && fechaHastaParam != null && !fechaHastaParam.isEmpty()) {
+                                baseParams += "&fechaHasta=" + fechaHastaParam;
+                            }
+                            if (chkTipo && tipoParam != null && !tipoParam.trim().isEmpty()) {
+                                baseParams += "&chkTipo=on&tipo="
+                                        + URLEncoder.encode(tipoParam.trim(), "UTF-8");
+                                if (exactTipo) {
+                                    baseParams += "&exactTipo=on";
+                                }
+                            }
+                            if (chkEtiqueta && etiquetaParam != null && !etiquetaParam.trim().isEmpty()) {
+                                baseParams += "&chkEtiqueta=on&etiqueta="
+                                        + URLEncoder.encode(etiquetaParam.trim(), "UTF-8");
+                                if (exactEtiqueta) {
+                                    baseParams += "&exactEtiqueta=on";
+                                }
+                            }
+                        }
+                    %>
+                    <li class="<%= currentPage == 1 ? "disabled" : ""%>">
+                        <a href="?page=1<%= baseParams%>">&laquo;</a>
+                    </li>
+                    <li class="<%= currentPage == 1 ? "disabled" : ""%>">
+                        <a href="?page=<%= currentPage - 1%><%= baseParams%>">&lsaquo;</a>
+                    </li>
 
-  .actions button {
-    font-size: 0.85rem;
-    padding: 6px 12px;
-    border-radius: 4px;
-  }
+                    <%
+                        int windowSize = 5;
+                        int startPage = Math.max(1, currentPage - windowSize / 2);
+                        int endPage = Math.min(totalPages, startPage + windowSize - 1);
+                        if (endPage - startPage < windowSize - 1) {
+                            startPage = Math.max(1, endPage - windowSize + 1);
+                        }
+                        for (int p = startPage; p <= endPage; p++) {
+                    %>
+                    <li class="<%= p == currentPage ? "active" : ""%>">
+                        <a href="?page=<%= p%><%= baseParams%>"><%= p%></a>
+                    </li>
+                    <% }%>
 
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
+                    <li class="<%= currentPage == totalPages ? "disabled" : ""%>">
+                        <a href="?page=<%= currentPage + 1%><%= baseParams%>">&rsaquo;</a>
+                    </li>
+                    <li class="<%= currentPage == totalPages ? "disabled" : ""%>">
+                        <a href="?page=<%= totalPages%><%= baseParams%>">&raquo;</a>
+                    </li>
+                </ul>
+                <% }%>
+            </div>
+        </div>
 
-  .modal-content {
-    background: #fff;
-    width: 90%;
-    max-width: 760px; 
-    height: auto;
-    border-radius: 6px;
-    position: relative;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
+        <script>
+      const ctx = '<%= request.getContextPath()%>';
 
-  .modal-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: transparent;
-    border: none;
-    font-size: 1.4rem;
-    cursor: pointer;
-  }
+      const chkNumeroRadicado = document.getElementById('chkNumeroRadicado');
+      const inputNumeroRadicado = document.getElementById('inputNumeroRadicado');
+      const suggestionsNumeroRadicado = document.getElementById('suggestionsNumeroRadicado');
 
-  .modal-iframe {
-    width: 100%;
-    height: 580px;
-    border: none;
-    border-radius: 0 0 6px 6px;
-  }
+      const chkTitulo = document.getElementById('chkTitulo');
+      const inputTitulo = document.getElementById('inputTitulo');
+      const suggestionsTitulo = document.getElementById('suggestionsTitulo');
 
-  tr.select    background: #e6f7ff !important;
-  }
-  html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow-y: auto;
-  background: var(--bg);
-  color: var(--text); 
-}
+      const chkFecha = document.getElementById('chkFecha');
+      const fechaDesdeInput = document.getElementById('fechaDesde');
+      const fechaHastaInput = document.getElementById('fechaHasta');
 
-* {
-  box-sizing: border-box;
-  font-family: 'Poppins', sans-serif;
-  color: inherit; 
-}
+      const chkTipo = document.getElementById('chkTipo');
+      const inputTipo = document.getElementById('inputTipo');
+      const suggestionsTipo = document.getElementById('suggestionsTipo');
 
-.menu-box {
-  background: #fff;
-  color: #000; 
-}
+      const chkEtiqueta = document.getElementById('chkEtiqueta');
+      const inputEtiqueta = document.getElementById('inputEtiqueta');
+      const suggestionsEtiqueta = document.getElementById('suggestionsEtiqueta');
 
-.shortcut-tags {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
+      const chkSoloPlantillas = document.getElementById('chkSoloPlantillas');
 
-.shortcut-tags .card {
-  flex: 1 1 45%; 
-  background: #fdfdfd;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 16px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-}
+      const btnBuscar = document.getElementById('btnBuscar');
+      const btnLimpiar = document.getElementById('btnLimpiar');
 
-.shortcut-tags .card h2 {
-  font-size: 1.2rem;
-  margin-bottom: 10px;
-  color: #444;
-}
+      function activateOnly(chk) {
+          [chkNumeroRadicado, chkTitulo, chkFecha, chkTipo, chkEtiqueta, chkSoloPlantillas].forEach(cb => {
+              if (cb !== chk) {
+                  cb.checked = false;
+              }
+          });
+          chk.checked = true;
+      }
 
-.shortcut-tags ul {
-  list-style: none;
-  padding-left: 0;
-  margin: 0;
-}
-
-.shortcut-tags li {
-  margin-bottom: 8px;
-  font-size: 0.95rem;
-  color: #222;
-  display: flex;
-  align-items: center;
-}
-
-.shortcut-tags li i {
-  margin-right: 6px;
-  color: var(--accent);
-}
-
-</style>
-</head>
-<body>
-  <div class="menu-container">
-    <div class="menu-box">
-      <h2>Búsqueda Avanzada</h2>
-
-      <section class="toolbar">
-        <input type="text" name="nombre" placeholder="Título" value="<%= nombre!=null?nombre:"" %>">
-        <input type="date" name="fechaDesde" value="<%= fechaDesde!=null?fechaDesde:"" %>">
-        <input type="date" name="fechaHasta" value="<%= fechaHasta!=null?fechaHasta:"" %>">
-        <select name="tipo">
-          <option value="">-- Tipo --</option>
-          <option value="Informe"  <%= "Informe".equals(tipo)?"selected":"" %>>Informe</option>
-          <option value="Memo"     <%= "Memo".equals(tipo)?"selected":"" %>>Memo</option>
-          <option value="Contrato" <%= "Contrato".equals(tipo)?"selected":"" %>>Contrato</option>
-        </select>
-        <input type="text" name="etiqueta" placeholder="Etiqueta" value="<%= etiqueta!=null?etiqueta:"" %>">
-        <label style="display:flex;align-items:center;gap:4px;">
-          <input type="checkbox" name="soloPlantillas" <%= soloPlantillas?"checked":"" %> > Sólo plantillas
-        </label>
-        <button onclick="applyFilters()">Aplicar filtros</button>
-      </section>
-
-      <table class="docs-table" id="tablaDocs">
-        <thead>
-          <tr>
-            <th>Numero</th><th>Documento</th><th>Tipo</th><th>Fecha</th><th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% if (resultados.isEmpty()) { %>
-            <tr><td colspan="5" style="text-align:center;">No se encontraron documentos</td></tr>
-          <% } else {
-               int i=1;
-               for (Map<String,Object> d : resultados) { %>
-            <tr>
-              <td><%= i++ %></td>
-              <td><%= d.get("titulo") %></td>
-              <td><%= d.get("tipo")   %></td>
-              <td><%= d.get("fecha")  %></td>
-              <td>
-                <button onclick="ver(<%= d.get("id") %>)">Ver</button>
-                <button onclick="descargar(<%= d.get("id") %>)">Descargar</button>
-                <button onclick="editar(<%= d.get("id") %>)">Editar</button>
-              </td>
-            </tr>
-          <%   }
-             }
-          %>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    function applyFilters(){
-      const qs = [];
-      const fp = document.querySelector('.toolbar');
-      fp.querySelectorAll('input[name], select[name]').forEach(el=>{
-        if ((el.type==='checkbox' && el.checked) ||
-            (el.type!=='checkbox' && el.value.trim()!=='')) {
-          qs.push(encodeURIComponent(el.name)+'='+encodeURIComponent(el.value));
-        }
+      chkSoloPlantillas.addEventListener('change', () => {
+          if (chkSoloPlantillas.checked) {
+              activateOnly(chkSoloPlantillas);
+          }
       });
-      window.location.href = 'buscarDocumento.jsp?' + qs.join('&');
-    }
-    function ver(id){ window.open('verDocumento?id='+id,'_blank'); }
-    function descargar(id){ location.href='descargarDocumento?id='+id; }
-    function editar(id){ location.href='editarDocumento.jsp?id='+id; }
-  </script>
-</body>
+      [chkNumeroRadicado, chkTitulo, chkFecha, chkTipo, chkEtiqueta].forEach(chk => {
+          chk.addEventListener('change', () => {
+              if (chk.checked) {
+                  activateOnly(chk);
+              }
+          });
+      });
+
+      function executeSearch() {
+          let qs = [];
+          qs.push('page=1');
+          if (chkSoloPlantillas.checked) {
+              qs.push('soloPlantillas=on');
+          } else {
+              if (chkNumeroRadicado.checked) {
+                  let val = inputNumeroRadicado.value.trim();
+                  if (val !== '') {
+                      qs.push('chkNumeroRadicado=on');
+                      qs.push('numeroRadicado=' + encodeURIComponent(val));
+                  }
+              }
+              if (chkTitulo.checked) {
+                  let val = inputTitulo.value.trim();
+                  if (val !== '') {
+                      qs.push('chkTitulo=on');
+                      qs.push('titulo=' + encodeURIComponent(val));
+                  }
+              }
+              if (chkFecha.checked) {
+                  const fd = fechaDesdeInput.value;
+                  const fh = fechaHastaInput.value;
+                  qs.push('chkFecha=on');
+                  if (fd)
+                      qs.push('fechaDesde=' + encodeURIComponent(fd));
+                  if (fh)
+                      qs.push('fechaHasta=' + encodeURIComponent(fh));
+              }
+              if (chkTipo.checked) {
+                  let val = inputTipo.value.trim();
+                  if (val !== '') {
+                      qs.push('chkTipo=on');
+                      qs.push('tipo=' + encodeURIComponent(val));
+                  }
+              }
+              if (chkEtiqueta.checked) {
+                  let val = inputEtiqueta.value.trim();
+                  if (val !== '') {
+                      qs.push('chkEtiqueta=on');
+                      qs.push('etiqueta=' + encodeURIComponent(val));
+                  }
+              }
+          }
+          const queryString = qs.join('&');
+          const url = queryString
+                  ? ctx + '/buscarDocumento.jsp?' + queryString
+                  : ctx + '/buscarDocumento.jsp';
+          window.location.href = url;
+      }
+
+      function executeSearchExact(field, value) {
+          let qs = [];
+          qs.push('page=1');
+          if (field === 'numeroRadicado') {
+              activateOnly(chkNumeroRadicado);
+              qs.push('chkNumeroRadicado=on');
+              qs.push('numeroRadicado=' + encodeURIComponent(value));
+              qs.push('exactNumeroRadicado=on');
+          } else if (field === 'titulo') {
+              activateOnly(chkTitulo);
+              qs.push('chkTitulo=on');
+              qs.push('titulo=' + encodeURIComponent(value));
+              qs.push('exactTitulo=on');
+          } else if (field === 'tipo') {
+              activateOnly(chkTipo);
+              qs.push('chkTipo=on');
+              qs.push('tipo=' + encodeURIComponent(value));
+              qs.push('exactTipo=on');
+          } else if (field === 'etiqueta') {
+              activateOnly(chkEtiqueta);
+              qs.push('chkEtiqueta=on');
+              qs.push('etiqueta=' + encodeURIComponent(value));
+              qs.push('exactEtiqueta=on');
+          }
+          const queryString = qs.join('&');
+          const url = ctx + '/buscarDocumento.jsp?' + queryString;
+          window.location.href = url;
+      }
+
+      btnBuscar.addEventListener('click', (e) => {
+          e.preventDefault();
+          executeSearch();
+      });
+      btnLimpiar.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.location.href = ctx + '/buscarDocumento.jsp';
+      });
+
+      function fetchSuggestions(field, term, suggestionContainer, inputElement) {
+          if (!term || term.length < 1) {
+              suggestionContainer.style.display = 'none';
+              return;
+          }
+          fetch(ctx + '/buscador.jsp?term=' + encodeURIComponent(term) + '&field=' + encodeURIComponent(field))
+                  .then(res => res.json())
+                  .then(json => {
+                      suggestionContainer.innerHTML = '';
+                      if (!Array.isArray(json) || json.length === 0) {
+                          const divNo = document.createElement('div');
+                          divNo.className = 'suggestion-item';
+                          divNo.textContent = 'No hay coincidencias';
+                          suggestionContainer.appendChild(divNo);
+                          suggestionContainer.style.display = 'block';
+                          return;
+                      }
+                      json.forEach(item => {
+                          const div = document.createElement('div');
+                          div.className = 'suggestion-item';
+                          div.textContent = item;
+                          div.addEventListener('click', () => {
+                              executeSearchExact(field, item);
+                          });
+                          suggestionContainer.appendChild(div);
+                      });
+                      suggestionContainer.style.display = 'block';
+                  })
+                  .catch(err => {
+                      console.error('Error al buscar sugerencias:', err);
+                      suggestionContainer.style.display = 'none';
+                  });
+      }
+
+      inputNumeroRadicado.addEventListener('input', function () {
+          activateOnly(chkNumeroRadicado);
+          fetchSuggestions('numeroRadicado', this.value.trim(), suggestionsNumeroRadicado, inputNumeroRadicado);
+      });
+      inputNumeroRadicado.addEventListener('blur', () => {
+          setTimeout(() => suggestionsNumeroRadicado.style.display = 'none', 100);
+      });
+      inputNumeroRadicado.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              activateOnly(chkNumeroRadicado);
+              executeSearch();
+          }
+      });
+
+      inputTitulo.addEventListener('input', function () {
+          activateOnly(chkTitulo);
+          fetchSuggestions('titulo', this.value.trim(), suggestionsTitulo, inputTitulo);
+      });
+      inputTitulo.addEventListener('blur', () => {
+          setTimeout(() => suggestionsTitulo.style.display = 'none', 100);
+      });
+      inputTitulo.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              activateOnly(chkTitulo);
+              executeSearch();
+          }
+      });
+
+      inputTipo.addEventListener('input', function () {
+          activateOnly(chkTipo);
+          fetchSuggestions('tipo', this.value.trim(), suggestionsTipo, inputTipo);
+      });
+      inputTipo.addEventListener('blur', () => {
+          setTimeout(() => suggestionsTipo.style.display = 'none', 100);
+      });
+      inputTipo.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              activateOnly(chkTipo);
+              executeSearch();
+          }
+      });
+
+      inputEtiqueta.addEventListener('input', function () {
+          activateOnly(chkEtiqueta);
+          fetchSuggestions('etiqueta', this.value.trim(), suggestionsEtiqueta, inputEtiqueta);
+      });
+      inputEtiqueta.addEventListener('blur', () => {
+          setTimeout(() => suggestionsEtiqueta.style.display = 'none', 100);
+      });
+      inputEtiqueta.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              activateOnly(chkEtiqueta);
+              executeSearch();
+          }
+      });
+
+      fechaDesdeInput.addEventListener('change', function () {
+          activateOnly(chkFecha);
+      });
+      fechaHastaInput.addEventListener('change', function () {
+          activateOnly(chkFecha);
+      });
+      [fechaDesdeInput, fechaHastaInput].forEach(el => {
+          el.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (chkFecha.checked) {
+                      executeSearch();
+                  }
+              }
+          });
+      });
+
+      function ver(id) {
+          window.open(ctx + '/vistaPreviaDocumento.jsp?id=' + id, '_blank');
+      }
+      function descargar(id) {
+          window.location.href = ctx + '/descargarDocumento.jsp?id=' + id;
+      }
+      function editar(id) {
+          window.location.href = ctx + '/editarDocumento.jsp?id=' + id;
+      }
+        </script>
+    </body>
 </html>

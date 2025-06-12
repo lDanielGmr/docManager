@@ -6,6 +6,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Inicio de Sesión</title>
+    <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
     <style>
         body {
             margin: 0;

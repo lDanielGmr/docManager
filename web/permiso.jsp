@@ -30,10 +30,12 @@
   <title>Gestión de Permisos</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
+  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
+
   <style>
     :root {
       --bg: #1f1f2e;
-      --accent: #007BFF;
+      --accent: #007bff;
       --accent-hover: #0056b3;
       --text: #e0e0e0;
       --light: #fff;

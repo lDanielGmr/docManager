@@ -14,6 +14,8 @@
   <title>Modificar Área</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
+  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
+
   <style>
     .form-container { width:90%; max-width:400px; margin:20px auto; padding:20px; background:#fff; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.1); font-family:'Segoe UI',sans-serif; }
     h2 { font-size:1.5rem; margin-bottom:16px; color:#333; text-align:center; }

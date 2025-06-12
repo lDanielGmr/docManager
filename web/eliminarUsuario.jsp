@@ -8,6 +8,8 @@
   <title>Eliminar Usuario</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
+  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
+
 </head>
 <body>
 <%
