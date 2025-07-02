@@ -2,7 +2,6 @@
 <%@ page import="clasesGenericas.Usuario, clasesGenericas.Rol, clasesGenericas.Area" %>
 <%@ include file="menu.jsp" %>
 <%
-    // Obtener id del parámetro
     String idStr = request.getParameter("id");
     if (idStr == null) {
         response.sendRedirect("usuario.jsp");
@@ -15,7 +14,6 @@
         response.sendRedirect("usuario.jsp");
         return;
     }
-    // Buscar el usuario en findAll()
     Usuario u = Usuario.findAll().stream()
             .filter(x -> x.getId() == id)
             .findFirst().orElse(null);

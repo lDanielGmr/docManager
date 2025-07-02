@@ -2,6 +2,9 @@
 <%@ page import="
     java.util.List,
     java.util.Optional,
+    java.util.Map,
+    java.util.HashMap,
+    java.sql.SQLException,
     clasesGenericas.Area
 " %>
 <%@ include file="menu.jsp" %>
@@ -17,7 +20,12 @@
         .orElse(1);
     if (currentPage < 1) currentPage = 1;
 
-    List<Area> allAreas = Area.findAll();
+    List<Area> allAreas;
+    try {
+        allAreas = Area.findAll();
+    } catch (SQLException ex) {
+        throw new RuntimeException("Error cargando áreas", ex);
+    }
     int totalRows = allAreas.size();
     int totalPages = Math.max(1, (int) Math.ceil((double) totalRows / PAGE_SIZE));
     if (currentPage > totalPages) currentPage = totalPages;
@@ -32,6 +40,12 @@
     int fromIndex = (currentPage - 1) * PAGE_SIZE;
     int toIndex = Math.min(fromIndex + PAGE_SIZE, totalRows);
     List<Area> pageList = allAreas.subList(fromIndex, toIndex);
+
+    Map<Integer, Boolean> usedMap = new HashMap<>();
+    for (Area a : pageList) {
+        boolean usado = Area.isUsed(a.getId());
+        usedMap.put(a.getId(), usado);
+    }
 %>
 <!DOCTYPE html>
 <html lang="es">
@@ -53,6 +67,8 @@
       --header-bg: #f5f5f5;
       --text-dark: #222;
       --text-header: #444;
+      --disabled-bg: #ddd;
+      --disabled-text: #888;
     }
     html, body {
       margin:0; padding:0; height:100%; overflow-y:auto;
@@ -107,6 +123,11 @@
       cursor:pointer; transition:opacity .2s;
     }
     .actions button:hover { opacity:.8; }
+    .actions button.disabled {
+      background: var(--disabled-bg) !important;
+      color: var(--disabled-text) !important;
+      cursor: default;
+    }
     .modal-overlay {
       position:fixed; top:0; left:0; width:100%; height:100%;
       background:rgba(0,0,0,0.5); display:none;
@@ -163,6 +184,7 @@
           <%
             } else {
                 for (Area a : pageList) {
+                  boolean usado = usedMap.get(a.getId());
           %>
           <tr>
             <td><%= seq++ %></td>
@@ -171,10 +193,16 @@
               <button class="btnEdit" data-id="<%=a.getId()%>">
                 <i class="fas fa-edit"></i> Modificar
               </button>
-              <button onclick="if(confirm('¿Eliminar área «<%=a.getNombre()%>»?')) 
-                                location='<%=cp%>/eliminarArea.jsp?id=<%=a.getId()%>&page=<%=currentPage%>'">
-                <i class="fas fa-trash"></i> Eliminar
-              </button>
+              <% if (!usado) { %>
+                <button onclick="if(confirm('¿Eliminar área «<%=a.getNombre()%>»?')) 
+                                  location='<%=cp%>/eliminarArea.jsp?id=<%=a.getId()%>&page=<%=currentPage%>'">
+                  <i class="fas fa-trash"></i> Eliminar
+                </button>
+              <% } else { %>
+                <button class="disabled" disabled title="No se puede eliminar: área en uso">
+                  <i class="fas fa-trash"></i> Eliminar
+                </button>
+              <% } %>
             </td>
           </tr>
           <%

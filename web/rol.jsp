@@ -54,6 +54,8 @@
       --table-header-bg: #f5f5f5;
       --text-dark: #222;
       --text-header: #444;
+      --disabled-bg: #ccc;
+      --disabled-text: #666;
     }
     html, body {
       margin: 0; padding: 0; height: 100%; overflow-y: auto;
@@ -203,8 +205,9 @@
             <%
               } else {
                   for (Rol r : pageList) {
+                      boolean usado = Rol.isUsed(r.getId());
             %>
-            <tr data-id="<%= r.getId() %>" onclick="seleccionar(this)">
+            <tr data-id="<%= r.getId() %>" data-usado="<%= usado %>" onclick="seleccionar(this)">
               <td><%= seq++ %></td>
               <td><%= r.getNombre() %></td>
             </tr>
@@ -244,7 +247,7 @@
         <button id="btnEdit">
           <i class="fas fa-edit"></i> Modificar
         </button>
-        <button id="btnDelete">
+        <button id="btnDelete" title="Selecciona un rol">
           <i class="fas fa-trash-alt"></i> Eliminar
         </button>
       </section>
@@ -267,10 +270,14 @@
 
   <script>
     let selectedRow = null;
+
     function seleccionar(row) {
       document.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
       row.classList.add('selected');
       selectedRow = row;
+
+      const btnDelete = document.getElementById('btnDelete');
+      btnDelete.title = "Eliminar rol";
     }
 
     const modal       = document.getElementById('modal'),
@@ -294,7 +301,10 @@
     };
 
     btnEdit.onclick = () => {
-      if (!selectedRow) return alert('Selecciona un rol');
+      if (!selectedRow) {
+        alert('Selecciona un rol');
+        return;
+      }
       idInput.value = selectedRow.dataset.id;
       nombreInput.value = selectedRow.cells[1].textContent.trim();
       submitBtn.innerHTML = '<i class="fas fa-edit"></i> Modificar';
@@ -303,8 +313,17 @@
     };
 
     btnDelete.onclick = () => {
-      if (!selectedRow) return alert('Selecciona un rol');
-      if (confirm('¿Eliminar rol "' + selectedRow.cells[1].textContent + '"?')) {
+      if (!selectedRow) {
+        alert('Selecciona un rol');
+        return;
+      }
+      const usado = selectedRow.getAttribute('data-usado') === 'true';
+      if (usado) {
+        alert('No se puede eliminar: el rol está asignado a uno o más usuarios.');
+        return;
+      }
+      const nombre = selectedRow.cells[1].textContent.trim();
+      if (confirm('¿Eliminar rol "' + nombre + '"?')) {
         window.location = 'eliminarRol.jsp?id=' + selectedRow.dataset.id + '&page=<%=currentPage%>';
       }
     };

@@ -243,7 +243,7 @@
             }
             .menu-container {
                 width:100%;
-                max-width:960px;
+                max-width:1200px;
                 margin:20px auto;
                 padding:0 10px;
             }
@@ -434,6 +434,21 @@
                 border-radius:0 0 6px 6px;
             }
 
+            .btn-attach-response {
+                font-size:0.8rem;
+                padding:4px 8px;
+                margin-top:4px;
+                border-radius:4px;
+                background:#28a745;
+                color:#fff;
+                border:none;
+                cursor:pointer;
+                display:inline-block;
+            }
+            .btn-attach-response:hover {
+                opacity:0.9;
+            }
+
             #modalAdjuntar .modal-content form#formAdjuntar button[type="submit"] {
                 background: #007bff;
                 color: #fff;
@@ -520,7 +535,8 @@
                     </thead>
                     <tbody>
                         <%
-                            try (Connection conn = conexionBD.conectar(); PreparedStatement ps = conn.prepareStatement(dataSQL)) {
+                            try (Connection conn = conexionBD.conectar();
+                                 PreparedStatement ps = conn.prepareStatement(dataSQL)) {
                                 int pi = 1;
                                 ps.setInt(pi++, usuario.getId());
                                 ps.setInt(pi++, usuario.getId());
@@ -538,8 +554,9 @@
                                         }
                                         LocalDate f = rs.getTimestamp("fecha_creacion")
                                                 .toLocalDateTime().toLocalDate();
+                                        int docId = rs.getInt("id");
                         %>
-                        <tr data-id="<%=rs.getInt("id")%>" onclick="seleccionarFila(this)">
+                        <tr data-id="<%=docId%>" onclick="seleccionarFila(this)">
                             <%
                                 String numeroRadicado = rs.getString("numero_radicado");
                                 if (numeroRadicado != null) {
@@ -575,7 +592,7 @@
                                 <label class="checkbox-label">
                                     <input type="checkbox"
                                            <%=resp ? "checked" : ""%>
-                                           onchange="toggleRespondido(<%=rs.getInt("id")%>)">
+                                           onchange="toggleRespondido(<%=docId%>)">
                                     <i class="fas fa-check-circle"></i>
                                     <span><%=resp ? "Marcado" : "Marcar como respondido"%></span>
                                 </label>
@@ -583,18 +600,59 @@
                             </td>
                             <td>
                                 <% if (soyDest && req && !esPlantilla) {
-                                        String s = URLEncoder.encode(rs.getString("titulo"), "UTF-8");
+                                        String titulo = rs.getString("titulo");
+                                        String sEncoded = "";
+                                        try {
+                                            sEncoded = URLEncoder.encode(titulo, "UTF-8");
+                                        } catch(Exception _e) { }
                                 %>
-                                <a href="https://mail.google.com/mail/?view=cm&su=<%=s%>"
-                                   target="_blank" class="checkbox-label" style="margin-right:8px;">
+                                <a href="https://mail.google.com/mail/?view=cm&su=<%=sEncoded%>"
+                                   target="_blank"
+                                   class="checkbox-label"
+                                   style="margin-right:8px;">
                                     <i class="fas fa-reply"></i> Responder
                                 </a>
-                                <button type="button"
-                                        class="checkbox-label"
-                                        onclick="abrirModalAdjuntar(<%=rs.getInt("id")%>)">
-                                    <i class="fas fa-paperclip"></i> Adjuntar
+                                <%
+                                        int resId = 0;
+                                        String path = null;
+                                        try (PreparedStatement pst2 = conn.prepareStatement(
+                                                "SELECT id, archivo_path FROM documento_respuesta WHERE documento_id=?"
+                                            )) {
+                                            pst2.setInt(1, docId);
+                                            try (ResultSet rs2 = pst2.executeQuery()) {
+                                                if (rs2.next()) {
+                                                    resId = rs2.getInt("id");
+                                                    path = rs2.getString("archivo_path");
+                                                }
+                                            }
+                                        } catch (SQLException e2) {
+                                            StringWriter sw2 = new StringWriter();
+                                            e2.printStackTrace(new PrintWriter(sw2));
+                                            System.err.println("Error al obtener respuesta para docId=" + docId + ": " + sw2.toString());
+                                        }
+                                        if (path == null) {
+                                %>
+                                <button class="btn-attach-response" onclick="abrirAdjuntarRespuesta(<%=docId%>)">
+                                  <i class="fas fa-paperclip"></i> Adjuntar
                                 </button>
-                                <% } else { %>&mdash;<% } %>
+                                <%      } else {
+                                            String nombre = path.substring(path.lastIndexOf('/')+1);
+                                %>
+                                <span><i class="fas fa-file"></i> <%= nombre %></span>
+                                <button class="btn-attach-response" onclick="abrirEditarRespuesta(<%=resId%>)">
+                                  <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn-attach-response" onclick="previewRespuesta(<%=resId%>)">
+                                  <i class="fas fa-eye"></i>
+                                </button>
+                                <a href="<%=request.getContextPath()%>/descargarRespuesta.jsp?id=<%=resId%>" class="btn-attach-response" target="_blank">
+                                  <i class="fas fa-download"></i>
+                                </a>
+                                <%      }
+                                   } else {
+                                       out.print("&mdash;");
+                                   }
+                                %>
                             </td>
                         </tr>
                         <%       }
@@ -655,7 +713,7 @@
                 <button class="modal-close" onclick="cerrarModalAdjuntar()">
                     <i class="fas fa-times"></i>
                 </button>
-                <form id="formAdjuntar" action="subirRespuesta.jsp"
+                <form id="formAdjuntar" action="<%=request.getContextPath()%>/subirRespuesta.jsp"
                       method="post" enctype="multipart/form-data"
                       style="padding:16px;">
                     <input type="hidden" name="documentoId" id="inputDocId">
@@ -737,6 +795,18 @@
                 if (!id)
                     return alert('Selecciona un documento.');
                 window.open(ctx + '/descargarDocumento.jsp?id=' + id, '_blank');
+            }
+            function abrirAdjuntarRespuesta(docId) {
+                iframe.src = ctx + '/subirRespuesta.jsp?documentoId=' + docId;
+                modal.style.display = 'flex';
+            }
+            function abrirEditarRespuesta(resId) {
+                iframe.src = ctx + '/editarRespuesta.jsp?id=' + resId;
+                modal.style.display = 'flex';
+            }
+            function previewRespuesta(resId) {
+                iframe.src = ctx + '/vistaPreviaRespuesta.jsp?id=' + resId;
+                modal.style.display = 'flex';
             }
         </script>
     </body>

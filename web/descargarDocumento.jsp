@@ -1,4 +1,4 @@
-<%@ page contentType="application/octet-stream" pageEncoding="UTF-8" language="java" %>
+<%@ page contentType="text/html; charset=UTF-8" language="java" session="true" %>
 <%@ page import="
     java.io.File,
     java.io.FileInputStream,
@@ -12,83 +12,102 @@
 <%@ page import="ConexionBD.conexionBD" %>
 <%
     String idParam = request.getParameter("id");
+    String type    = request.getParameter("type");
+    if (type == null) type = "version";
+
     if (idParam == null || idParam.trim().isEmpty()) {
-        response.setContentType("text/html; charset=UTF-8");
         out.println("<h3 style='color:red;'>Parámetro 'id' faltante.</h3>");
         return;
     }
-
-    int docId;
+    int id;
     try {
-        docId = Integer.parseInt(idParam);
+        id = Integer.parseInt(idParam);
     } catch (NumberFormatException e) {
-        response.setContentType("text/html; charset=UTF-8");
-        out.println("<h3 style='color:red;'>ID de documento inválido.</h3>");
+        out.println("<h3 style='color:red;'>ID inválido: " + idParam + "</h3>");
         return;
     }
 
-    Connection conn = null;
-    PreparedStatement ps = null;
-    ResultSet rs = null;
-    String nombreArchivo = null;
+    String rutaRelativa = null;
+    Integer documentoId = null;
+    try (Connection conn = conexionBD.conectar()) {
+        String sql;
+        if ("version".equalsIgnoreCase(type)) {
+            sql = "SELECT ruta, doc_id FROM version WHERE id = ?";
+        } else if ("respuesta".equalsIgnoreCase(type)) {
+            sql = "SELECT archivo_path, documento_id FROM documento_respuesta WHERE id = ?";
+        } else {  // documento
+            sql = "SELECT nombre_archivo, id AS documento_id FROM documento WHERE id = ? AND IFNULL(eliminado,0)=0";
+        }
 
-    try {
-        conn = conexionBD.conectar();
-        String sql = "SELECT nombre_archivo FROM documento WHERE id = ? AND eliminado = 0";
-        ps = conn.prepareStatement(sql);
-        ps.setInt(1, docId);
-        rs = ps.executeQuery();
-        if (rs.next()) {
-            nombreArchivo = rs.getString("nombre_archivo");
-        } else {
-            response.setContentType("text/html; charset=UTF-8");
-            out.println("<h3 style='color:red;'>Documento no encontrado o eliminado.</h3>");
-            return;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    rutaRelativa = rs.getString(1);
+                    documentoId  = rs.getInt(2);
+                }
+            }
+        }
+
+        if (rutaRelativa == null || rutaRelativa.trim().isEmpty()) {
+            if (documentoId == null) documentoId = id;
+            try (PreparedStatement ps2 = conn.prepareStatement(
+                     "SELECT nombre_archivo FROM documento WHERE id = ? AND IFNULL(eliminado,0)=0"
+                 )) {
+                ps2.setInt(1, documentoId);
+                try (ResultSet rs2 = ps2.executeQuery()) {
+                    if (rs2.next()) {
+                        rutaRelativa = rs2.getString("nombre_archivo");
+                    }
+                }
+            }
         }
     } catch (SQLException ex) {
-        response.setContentType("text/html; charset=UTF-8");
-        out.println("<h3 style='color:red;'>Error al consultar la base de datos: " 
-                    + ex.getMessage() + "</h3>");
+        out.println("<h3 style='color:red;'>Error BD: " + ex.getMessage() + "</h3>");
         return;
-    } finally {
-        try { if (rs != null) rs.close(); } catch (SQLException ignore) {}
-        try { if (ps != null) ps.close(); } catch (SQLException ignore) {}
-        try { if (conn != null) conn.close(); } catch (SQLException ignore) {}
     }
 
-    String uploadsDirPath = application.getRealPath("/") + File.separator + "uploads";
-    File archivo = new File(uploadsDirPath, nombreArchivo);
+    if (rutaRelativa == null || rutaRelativa.trim().isEmpty()) {
+        out.println("<h3 style='color:red;'>Archivo no encontrado o registro inválido.</h3>");
+        return;
+    }
+
+    String uploadsDirPath = System.getenv("UPLOADS_DIR");
+    if (uploadsDirPath == null || uploadsDirPath.trim().isEmpty()) {
+        String userHome = System.getProperty("user.home");
+        uploadsDirPath = userHome + File.separator + "uploads_app";
+        File hd = new File(uploadsDirPath);
+        if (!hd.exists() && !hd.mkdirs()) {
+            uploadsDirPath = application.getRealPath("/") + File.separator + "uploads";
+        }
+    }
+    File carpeta = new File(uploadsDirPath);
+
+    File archivo = new File(carpeta, rutaRelativa);
     if (!archivo.exists() || !archivo.isFile()) {
-        response.setContentType("text/html; charset=UTF-8");
-        out.println("<h3 style='color:red;'>El archivo físico no existe en el servidor.</h3>");
+        out.println("<h3 style='color:red;'>El archivo físico no existe en el servidor:<br/>"
+                    + archivo.getAbsolutePath() + "</h3>");
         return;
     }
 
     String mimeType = application.getMimeType(archivo.getName());
-    if (mimeType == null) {
-        mimeType = "application/octet-stream";
-    }
+    if (mimeType == null) mimeType = "application/octet-stream";
 
-    FileInputStream fis = null;
-    try {
-        response.reset();
-        response.setContentType(mimeType);
-        response.setContentLengthLong(archivo.length());
-        String headerValue = String.format("attachment; filename=\"%s\"", archivo.getName());
-        response.setHeader("Content-Disposition", headerValue);
+    response.reset();
+    response.setContentType(mimeType);
+    response.setContentLengthLong(archivo.length());
+    response.setHeader("Content-Disposition",
+        String.format("attachment; filename=\"%s\"", archivo.getName()));
 
-        fis = new FileInputStream(archivo);
-        OutputStream os = response.getOutputStream();
-        byte[] buffer = new byte[4096];
-        int bytesRead;
-        while ((bytesRead = fis.read(buffer)) != -1) {
-            os.write(buffer, 0, bytesRead);
+    try (FileInputStream fis = new FileInputStream(archivo);
+         OutputStream fileOut = response.getOutputStream()) {
+        byte[] buf = new byte[4096];
+        int n;
+        while ((n = fis.read(buf)) > 0) {
+            fileOut.write(buf, 0, n);
         }
-        os.flush();
+        fileOut.flush();
     } catch (IOException ioe) {
-        response.setContentType("text/html; charset=UTF-8");
-        out.println("<h3 style='color:red;'>Error al enviar el archivo: " + ioe.getMessage() + "</h3>");
-    } finally {
-        try { if (fis != null) fis.close(); } catch (IOException ignore) {}
+        log("Error enviando archivo: " + ioe.getMessage(), ioe);
     }
 %>

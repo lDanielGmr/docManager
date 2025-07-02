@@ -53,6 +53,7 @@
       --header-bg: #f5f5f5;
       --text-dark: #222;
       --text-header: #444;
+      --disabled-text: #888;
     }
     html, body {
       margin:0; padding:0; height:100%; overflow-y:auto;
@@ -82,7 +83,7 @@
       cursor:pointer; transition:opacity .3s;
     }
     .toolbar button:hover { opacity:.8; }
-    table.etq-table {
+    .etq-table {
       width:100%; border-collapse:collapse; margin-bottom:20px;
       background: var(--light);
     }
@@ -96,6 +97,7 @@
     }
     .etq-table tr:hover { background: var(--hover-light); cursor:pointer; }
     .etq-table tr.selected { background: #e6f7ff !important; }
+    .etq-table tr.usada { font-style: italic; color: var(--disabled-text); }
     .actions {
       display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
       margin-bottom:16px;
@@ -176,8 +178,14 @@
             <%
               } else {
                   for (Etiqueta e : pageList) {
+                      boolean usada = e.isEnUso();
             %>
-            <tr data-id="<%=e.getId()%>" onclick="seleccionar(this)">
+            <tr 
+              data-id="<%=e.getId()%>" 
+              data-usada="<%= usada %>" 
+              class="<%= usada ? "usada" : "" %>"
+              onclick="seleccionar(this)"
+            >
               <td><%= seq++ %></td>
               <td><%= e.getNombre() %></td>
             </tr>
@@ -214,7 +222,7 @@
       </ul>
 
       <section class="actions">
-        <button id="btnEdit"><i class="fas fa-edit"></i> Modificar</button>
+        <button id="btnEdit" disabled class="disabled"><i class="fas fa-edit"></i> Modificar</button>
         <button id="btnDelete"><i class="fas fa-trash-alt"></i> Eliminar</button>
       </section>
     </div>
@@ -234,20 +242,23 @@
 
   <script>
     let selectedRow = null;
-    function seleccionar(r) {
-      document.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected'));
-      r.classList.add('selected');
-      selectedRow = r;
-    }
-    const modal = document.getElementById('modal'),
+    const btnAdd = document.getElementById('btnAdd'),
+          btnEdit = document.getElementById('btnEdit'),
+          btnDelete = document.getElementById('btnDelete'),
+          modal = document.getElementById('modal'),
           form = document.getElementById('formEtq'),
           nombreInput = document.getElementById('etqNombre'),
           idInput = document.getElementById('etqId'),
           submitBtn = document.getElementById('submitBtn'),
-          btnAdd = document.getElementById('btnAdd'),
-          btnEdit = document.getElementById('btnEdit'),
-          btnDelete = document.getElementById('btnDelete'),
           btnClose = document.getElementById('btnClose');
+
+    function seleccionar(r) {
+      document.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected'));
+      r.classList.add('selected');
+      selectedRow = r;
+      btnEdit.disabled = false;
+      btnEdit.classList.remove('disabled');
+    }
 
     btnAdd.onclick = () => {
       selectedRow = null;
@@ -257,10 +268,14 @@
       submitBtn.innerHTML = '<i class="fas fa-plus"></i> Añadir';
       form.action = 'adicionarEtiqueta.jsp';
       modal.style.display = 'flex';
+      btnEdit.disabled = true;
+      btnEdit.classList.add('disabled');
     };
 
     btnEdit.onclick = () => {
-      if (!selectedRow) return alert('Selecciona una etiqueta');
+      if (!selectedRow) {
+        return alert('Selecciona una etiqueta');
+      }
       idInput.value = selectedRow.dataset.id;
       nombreInput.value = selectedRow.cells[1].textContent.trim();
       submitBtn.innerHTML = '<i class="fas fa-edit"></i> Modificar';
@@ -269,8 +284,15 @@
     };
 
     btnDelete.onclick = () => {
-      if (!selectedRow) return alert('Selecciona una etiqueta');
-      if (confirm('¿Eliminar etiqueta "' + selectedRow.cells[1].textContent + '"?')) {
+      if (!selectedRow) {
+        return alert('Selecciona una etiqueta');
+      }
+      const usada = selectedRow.dataset.usada === 'true';
+      if (usada) {
+        return alert('No se puede eliminar: la etiqueta ya ha sido utilizada por uno o más documentos.');
+      }
+      const nombre = selectedRow.cells[1].textContent.trim();
+      if (confirm('¿Eliminar etiqueta "' + nombre + '"?')) {
         window.location = 'eliminarEtiqueta.jsp?id=' + selectedRow.dataset.id + '&page=<%=currentPage%>';
       }
     };

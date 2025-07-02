@@ -67,7 +67,7 @@
         lastSeenTimestamp = new Timestamp(System.currentTimeMillis());
         String encodedDate = URLEncoder.encode(isoFmt.format(lastSeenTimestamp), "UTF-8");
         Cookie newCookie = new Cookie("docSeenTime", encodedDate);
-        newCookie.setMaxAge(60 * 60 * 24 * 30); 
+        newCookie.setMaxAge(60 * 60 * 24 * 30);
         response.addCookie(newCookie);
         firstVisit = true;
     } else {
@@ -262,48 +262,46 @@
       <span class="username"><%= usuarioNombre %></span>
     </div>
     <ul class="nav-list">
-      <%
-         pid = mapaPermisos.get("ver_inicio");
-         if (pid != null && permisosRol.contains(pid)) {
-      %>
-        <li><a href="inicio.jsp"><i class="fas fa-home"></i> Inicio</a></li>
-      <% } %>
+      <%  %>
+      <li><a href="inicio.jsp"><i class="fas fa-home"></i> Inicio</a></li>
+      <%  %>
       <%
          pid = mapaPermisos.get("ver_documentos");
          if (pid != null && permisosRol.contains(pid)) {
       %>
-        <li><a href="documento.jsp"><i class="fas fa-file-alt"></i> Documentos</a></li>
+      <li><a href="documento.jsp"><i class="fas fa-file-alt"></i> Documentos</a></li>
       <% } %>
       <%
          pid = mapaPermisos.get("ver_plantillas");
          if (pid != null && permisosRol.contains(pid)) {
       %>
-        <li><a href="documentoPlantilla.jsp"><i class="fas fa-file-alt"></i> Plantillas</a></li>
+      <li><a href="documentoPlantilla.jsp"><i class="fas fa-file-alt"></i> Plantillas</a></li>
       <% } %>
       <%
          pid = mapaPermisos.get("ver_busquedas");
          if (pid != null && permisosRol.contains(pid)) {
       %>
-        <li><a href="buscarDocumento.jsp"><i class="fas fa-search"></i> Búsquedas</a></li>
+      <li><a href="buscarDocumento.jsp"><i class="fas fa-search"></i> Búsquedas</a></li>
       <% } %>
       <%
          pid = mapaPermisos.get("ver_versiones");
          if (pid != null && permisosRol.contains(pid)) {
       %>
-        <li><a href="versionDocumento.jsp"><i class="fas fa-code-branch"></i> Versiones</a></li>
+      <li><a href="versionDocumento.jsp"><i class="fas fa-code-branch"></i> Versiones</a></li>
       <% } %>
       <%
          pid = mapaPermisos.get("ver_papelera");
          if (pid != null && permisosRol.contains(pid)) {
       %>
-        <li><a href="papelera.jsp"><i class="fas fa-trash"></i> Papelera</a></li>
+      <li><a href="papelera.jsp"><i class="fas fa-trash"></i> Papelera</a></li>
       <% } %>
       <%
          pid = mapaPermisos.get("ver_auditoria");
          if (pid != null && permisosRol.contains(pid)) {
       %>
-        <li><a href="auditoria.jsp"><i class="fas fa-clipboard-list"></i> Auditoría</a></li>
+      <li><a href="auditoria.jsp"><i class="fas fa-clipboard-list"></i> Auditoría</a></li>
       <% } %>
+      <%  %>
       <%
          Integer pUsr  = mapaPermisos.get("gestionar_usuarios");
          Integer pRol  = mapaPermisos.get("gestionar_roles");
@@ -311,42 +309,43 @@
          Integer pPerm = mapaPermisos.get("gestionar_permisos");
          Integer pArea = mapaPermisos.get("agregar_area");
          Integer pAsign= mapaPermisos.get("asignar_area");
-         Integer pCerrar = mapaPermisos.get("cerrar_sesion");
-         if ((pUsr   != null && permisosRol.contains(pUsr))   ||
-             (pRol   != null && permisosRol.contains(pRol))   ||
-             (pEtq   != null && permisosRol.contains(pEtq))   ||
-             (pPerm  != null && permisosRol.contains(pPerm))  ||
-             (pArea  != null && permisosRol.contains(pArea))  ||
-             (pAsign != null && permisosRol.contains(pAsign)) ||
-             (pCerrar!= null && permisosRol.contains(pCerrar))) {
+         boolean anyConfig = false;
+         if ((pUsr != null && permisosRol.contains(pUsr)) ||
+             (pRol != null && permisosRol.contains(pRol)) ||
+             (pEtq != null && permisosRol.contains(pEtq)) ||
+             (pPerm!= null && permisosRol.contains(pPerm))||
+             (pArea!= null && permisosRol.contains(pArea))||
+             (pAsign!= null && permisosRol.contains(pAsign))) {
+             anyConfig = true;
+         }
+         if (anyConfig) {
       %>
-        <li class="has-submenu">
-          <a href="#"><i class="fas fa-gear"></i> Configuración <i class="fas fa-chevron-down arrow"></i></a>
-          <ul class="submenu">
-            <% if (pUsr  != null && permisosRol.contains(pUsr))  { %>
-              <li><a href="usuario.jsp"><i class="fas fa-users-cog"></i> Usuarios</a></li>
-            <% } %>
-            <% if (pRol  != null && permisosRol.contains(pRol))  { %>
-              <li><a href="rol.jsp"><i class="fas fa-user-tag"></i> Roles</a></li>
-            <% } %>
-            <% if (pEtq != null && permisosRol.contains(pEtq)) { %>
-              <li><a href="etiqueta.jsp"><i class="fas fa-tag"></i> Etiquetas</a></li>
-            <% } %>
-            <% if (pArea != null && permisosRol.contains(pArea)) { %>
-              <li><a href="area.jsp"><i class="fas fa-building"></i> Área</a></li>
-            <% } %>
-            <% if (pAsign!= null && permisosRol.contains(pAsign)) { %>
-              <li><a href="asignarArea.jsp"><i class="fas fa-map-marker-alt"></i> Asignar Área</a></li>
-            <% } %>
-            <% if (pPerm != null && permisosRol.contains(pPerm)) { %>
-              <li><a href="permiso.jsp"><i class="fas fa-key"></i> Permisos</a></li>
-            <% } %>
-            <% if (pCerrar != null && permisosRol.contains(pCerrar)) { %>
-              <li><a href="cerrarSesion.jsp"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</a></li>
-            <% } %>
-          </ul>
-        </li>
+      <li class="has-submenu">
+        <a href="#"><i class="fas fa-gear"></i> Configuración <i class="fas fa-chevron-down arrow"></i></a>
+        <ul class="submenu">
+          <% if (pUsr  != null && permisosRol.contains(pUsr))  { %>
+            <li><a href="usuario.jsp"><i class="fas fa-users-cog"></i> Usuarios</a></li>
+          <% } %>
+          <% if (pRol  != null && permisosRol.contains(pRol))  { %>
+            <li><a href="rol.jsp"><i class="fas fa-user-tag"></i> Roles</a></li>
+          <% } %>
+          <% if (pEtq != null && permisosRol.contains(pEtq)) { %>
+            <li><a href="etiqueta.jsp"><i class="fas fa-tag"></i> Etiquetas</a></li>
+          <% } %>
+          <% if (pArea != null && permisosRol.contains(pArea)) { %>
+            <li><a href="area.jsp"><i class="fas fa-building"></i> Área</a></li>
+          <% } %>
+          <% if (pAsign!= null && permisosRol.contains(pAsign)) { %>
+            <li><a href="asignarArea.jsp"><i class="fas fa-map-marker-alt"></i> Asignar Área</a></li>
+          <% } %>
+          <% if (pPerm != null && permisosRol.contains(pPerm)) { %>
+            <li><a href="permiso.jsp"><i class="fas fa-key"></i> Permisos</a></li>
+          <% } %>
+        </ul>
+      </li>
       <% } %>
+      <% %>
+      <li><a href="cerrarSesion.jsp"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</a></li>
     </ul>
   </div>
 </div>

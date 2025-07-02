@@ -6,7 +6,50 @@
         return;
     }
 
+    String accion = request.getParameter("accion"); 
     String idStr = request.getParameter("id"); 
+
+    if ("eliminar".equalsIgnoreCase(accion)) {
+        String mensajeDel = null;
+        boolean errorDel = false;
+        if (idStr == null || idStr.trim().isEmpty()) {
+            errorDel = true;
+            mensajeDel = "ID de usuario no proporcionado para eliminación.";
+        }
+        if (!errorDel) {
+            try {
+                int id = Integer.parseInt(idStr.trim());
+                Usuario uDel = Usuario.findAll().stream()
+                        .filter(x -> x.getId() == id)
+                        .findFirst().orElse(null);
+                if (uDel == null) {
+                    errorDel = true;
+                    mensajeDel = "Usuario a eliminar no encontrado.";
+                } else {
+                    try {
+                        uDel.delete();
+                        mensajeDel = "Usuario eliminado correctamente.";
+                    } catch (Exception ex) {
+                        errorDel = true;
+                        mensajeDel = "Error al eliminar el usuario: " + ex.getMessage();
+                    }
+                }
+            } catch (NumberFormatException e) {
+                errorDel = true;
+                mensajeDel = "ID de usuario inválido.";
+            }
+        }
+        String destinoDel = "usuario.jsp";
+        if (mensajeDel != null) {
+            destinoDel += "?msg=" + URLEncoder.encode(mensajeDel, "UTF-8");
+            if (errorDel) {
+                destinoDel += "&error=1";
+            }
+        }
+        response.sendRedirect(destinoDel);
+        return;
+    }
+
     String nombre = request.getParameter("nombre");
     String usuarioParam = request.getParameter("usuario");
     String contrasena = request.getParameter("contrasena");
@@ -28,7 +71,7 @@
     boolean esEdicion = false;
     if (!error && idStr != null && !idStr.trim().isEmpty()) {
         try {
-            int id = Integer.parseInt(idStr);
+            int id = Integer.parseInt(idStr.trim());
             u = Usuario.findAll().stream()
                     .filter(x -> x.getId() == id)
                     .findFirst().orElse(null);
@@ -62,7 +105,11 @@
         }
         try {
             int rolId = Integer.parseInt(rolParam);
-            u.setRol(Rol.findById(rolId));
+            Rol rolObj = Rol.findById(rolId);
+            if (rolObj == null) {
+                throw new Exception("No existe rol con ID " + rolId);
+            }
+            u.setRol(rolObj);
         } catch (Exception e) {
             error = true;
             mensaje = "Rol inválido.";
@@ -72,7 +119,7 @@
     if (!error) {
         if (areaParam != null && !areaParam.trim().isEmpty()) {
             try {
-                int areaId = Integer.parseInt(areaParam);
+                int areaId = Integer.parseInt(areaParam.trim());
                 u.setIdArea(areaId);
             } catch (NumberFormatException e) {
                 u.setIdArea(null);

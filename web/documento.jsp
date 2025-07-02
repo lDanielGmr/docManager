@@ -25,17 +25,17 @@
 
     Object ua = session.getAttribute("user");
     Usuario usuario = ua instanceof Usuario
-        ? (Usuario) ua
-        : ua instanceof String
-            ? Usuario.findByUsuario((String) ua)
-            : null;
+            ? (Usuario) ua
+            : ua instanceof String
+                ? Usuario.findByUsuario((String) ua)
+                : null;
     if (usuario == null) {
         response.sendRedirect("index.jsp");
         return;
     }
     int userId = usuario.getId();
     String pageFileName = request.getServletPath()
-        .substring(request.getServletPath().lastIndexOf('/') + 1);
+            .substring(request.getServletPath().lastIndexOf('/') + 1);
     Menu.recordUse(usuario.getId(), pageFileName);
 
     Set<Integer> permisoIds = new HashSet<>();
@@ -141,7 +141,7 @@
             } else {
                 errorMsg = "ID de documento inválido.";
             }
-        } else if (deleteIdParam != null) {
+        } else if (request.getParameter("deleteId") != null) {
             errorMsg = "No tienes permiso para eliminar.";
         }
         String redirectURL = request.getRequestURI() + "?page=" + currentPage;
@@ -220,7 +220,6 @@
   <title>Gestión de Documentos</title>
   <link rel="stylesheet" href="<%=request.getContextPath()%>/css/fontawesome.css">
   <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
-
   <style>
     :root {
       --bg: #12121c;
@@ -237,7 +236,7 @@
     }
     * { box-sizing: border-box; font-family: 'Poppins', sans-serif; color: inherit; }
 
-    .menu-container { max-width: 960px; margin: 20px auto; padding: 0 10px; }
+    .menu-container { max-width: 1190px; margin: 20px auto; padding: 0 10px; }
     .menu-box { background: #fff; color: #000; padding: 16px;
                 border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     h2 { font-size:1.5rem; margin-bottom:14px; color:#333; }
@@ -336,6 +335,7 @@
     }
     .pagination li.disabled a { background:#ccc; color:#666; pointer-events:none; }
     .pagination li.active a { background:#4e32a8; font-weight:bold; border:2px solid #fff; }
+
     .error-message {
       background: #f8d7da; color: #842029; padding: 10px; border:1px solid #f5c2c7;
       border-radius:4px; margin-bottom: 16px;
@@ -430,12 +430,23 @@
           </td>
           <td>
             <% if (soyDest&&reqR&&!esPlantilla) {
+                 String titulo = rs.getString("titulo");
+                 String sEncoded = "";
+                 try { sEncoded = URLEncoder.encode(titulo, "UTF-8"); } catch(Exception _e){}
+            %>
+            <a href="https://mail.google.com/mail/?view=cm&su=<%=sEncoded%>"
+               target="_blank"
+               class="checkbox-label"
+               style="margin-right:8px;">
+              <i class="fas fa-reply"></i> Responder
+            </a>
+            <%
                  int resId=0; String path=null;
                  try (PreparedStatement pst2=c.prepareStatement(
-                        "SELECT id,archivo_path FROM documento_respuesta WHERE documento_id=?")) {
+                        "SELECT id, archivo_path FROM documento_respuesta WHERE documento_id=?")) {
                    pst2.setInt(1,docId);
                    try (ResultSet rs2=pst2.executeQuery()){
-                     if(rs2.next()){resId=rs2.getInt("id");path=rs2.getString("archivo_path");}
+                     if(rs2.next()){ resId=rs2.getInt("id"); path=rs2.getString("archivo_path"); }
                    }
                  } catch (SQLException e2) {
                    StringWriter sw2=new StringWriter();
@@ -447,7 +458,8 @@
               <i class="fas fa-paperclip"></i> Adjuntar
             </button>
             <% } else {
-                String nombre = path.substring(path.lastIndexOf('/')+1); %>
+                 String nombre = path.substring(path.lastIndexOf('/')+1);
+            %>
             <span><i class="fas fa-file"></i> <%=nombre%></span>
             <button class="btn-attach-response" onclick="abrirEditarRespuesta(<%=resId%>)">
               <i class="fas fa-edit"></i>
@@ -462,8 +474,7 @@
                } else out.print("—"); %>
           </td>
         </tr>
-        <%
-              }
+        <%       }
               if (!anyRow) {
         %>
         <tr>
@@ -471,8 +482,7 @@
             No hay documentos para mostrar.
           </td>
         </tr>
-        <%
-              }
+        <%      }
             }
         } catch (SQLException e) {
             StringWriter sw = new StringWriter();
@@ -484,8 +494,7 @@
             Hubo un error al cargar los documentos.
           </td>
         </tr>
-        <%
-        }
+        <% }
         %>
       </tbody>
     </table>
@@ -530,7 +539,6 @@
   </div>
 </div>
 
-<%-- Formulario oculto para eliminar vía POST --%>
 <form id="deleteForm" method="post" action="documento.jsp" style="display:none;">
   <input type="hidden" name="deleteId" id="deleteIdInput" value=""/>
 </form>
@@ -550,19 +558,19 @@
     iframe.src = ctx + '/adicionarDocumento.jsp';
     modal.style.display = 'flex';
   };
-  closeBtn.onclick = function(){
-    modal.style.display = 'none'; iframe.src = ''; window.location.reload();
+  if(closeBtn) closeBtn.onclick = function(){
+    modal.style.display = 'none'; iframe.src = 'about:blank'; window.location.reload();
   };
-  window.onclick = function(e){ if(e.target===modal) closeBtn.onclick(); };
+  window.onclick = function(e){ if(e.target===modal) closeBtn && closeBtn.onclick(); };
 
   filtro && filtro.addEventListener('input', function(){
     var term=this.value.trim();
-    if(term.length<2){sugg.style.display='none';return;}
+    if(term.length<2){ sugg.style.display='none'; return; }
     fetch(ctx+'/buscarTitulos.jsp?term='+encodeURIComponent(term)+'&scope=documento')
       .then(r=>r.json())
       .then(json=>{
         sugg.innerHTML='';
-        if(!json.length){sugg.style.display='none';return;}
+        if(!json.length){ sugg.style.display='none'; return; }
         json.forEach(item=>{
           var d=document.createElement('div');
           d.className='suggestion-item';
@@ -610,7 +618,6 @@
   function eliminarSeleccionado(){
     var id=getSelectedId(); if(!id)return alert('Selecciona un documento.');
     if(confirm('¿Eliminar?')) {
-      // Usar formulario POST
       document.getElementById('deleteIdInput').value = id;
       document.getElementById('deleteForm').submit();
     }
@@ -620,13 +627,16 @@
     window.open(ctx+'/descargarDocumento.jsp?id='+id,'_blank');
   }
   function abrirAdjuntarRespuesta(docId){
-    iframe.src=ctx+'/subirRespuesta.jsp?documentoId='+docId; modal.style.display='flex';
+    iframe.src=ctx+'/subirRespuesta.jsp?documentoId='+docId;
+    modal.style.display='flex';
   }
   function abrirEditarRespuesta(resId){
-    iframe.src=ctx+'/editarRespuesta.jsp?id='+resId; modal.style.display='flex';
+    iframe.src=ctx+'/editarRespuesta.jsp?id='+resId;
+    modal.style.display='flex';
   }
   function previewRespuesta(resId){
-    iframe.src=ctx+'/vistaPreviaRespuesta.jsp?id='+resId; modal.style.display='flex';
+    iframe.src=ctx+'/vistaPreviaRespuesta.jsp?id='+resId;
+    modal.style.display='flex';
   }
 </script>
 </body>

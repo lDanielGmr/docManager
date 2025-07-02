@@ -1,13 +1,13 @@
 package clasesGenericas;
 
+import ConexionBD.conexionBD;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-
-import ConexionBD.conexionBD;
 
 public class Rol {
     private int id;
@@ -28,7 +28,7 @@ public class Rol {
 
     public static List<Rol> findAll() {
         List<Rol> lista = new ArrayList<>();
-        String sql = "SELECT id, nombre FROM rol";
+        String sql = "SELECT id, nombre FROM rol ORDER BY nombre";
         try (Connection cn = conexionBD.conectar();
              PreparedStatement ps = cn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -40,6 +40,7 @@ public class Rol {
         }
         return lista;
     }
+
 
     public static Rol findById(int idBuscado) {
         String sql = "SELECT id, nombre FROM rol WHERE id = ?";
@@ -56,6 +57,7 @@ public class Rol {
         }
         return null;
     }
+
 
     public static Rol findByUsuario(String username) {
         String sql = "SELECT r.id, r.nombre " +
@@ -76,6 +78,7 @@ public class Rol {
         return null;
     }
 
+ 
     public boolean save() {
         String sql = "INSERT INTO rol(nombre) VALUES(?)";
         try (Connection cn = conexionBD.conectar();
@@ -95,6 +98,7 @@ public class Rol {
         return false;
     }
 
+
     public boolean update() {
         String sql = "UPDATE rol SET nombre = ? WHERE id = ?";
         try (Connection cn = conexionBD.conectar();
@@ -108,6 +112,7 @@ public class Rol {
         return false;
     }
 
+ 
     public boolean delete() {
         String sql = "DELETE FROM rol WHERE id = ?";
         try (Connection cn = conexionBD.conectar();
@@ -118,5 +123,23 @@ public class Rol {
             e.printStackTrace();
         }
         return false;
+    }
+
+
+    public static boolean isUsed(int id) {
+        String sql = "SELECT COUNT(*) FROM usuario WHERE id_rol = ?";
+        try (Connection cn = conexionBD.conectar();
+             PreparedStatement ps = cn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next() && rs.getInt(1) > 0) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return true;
+        }
     }
 }

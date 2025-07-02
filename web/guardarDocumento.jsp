@@ -11,10 +11,8 @@
     java.sql.ResultSet,
     java.sql.SQLException,
     java.util.HashMap,
-    java.util.HashSet,
     java.util.List,
-    java.util.Map,
-    java.util.Set
+    java.util.Map
 " %>
 <%@ page import="
     org.apache.commons.fileupload.FileItem,
@@ -45,23 +43,34 @@
     }
 
     String numeroRadicadoStr = getParameter(fields, "numero_radicado");
+    String idStr             = getParameter(fields, "id");
+    String idAreaStr         = getParameter(fields, "id_area");
+    String titulo            = getParameter(fields, "titulo");
+    String tipo              = getParameter(fields, "tipo");
+    String esPlantillaStr    = getParameter(fields, "esPlantilla");
+    String radicadoAStr      = getParameter(fields, "radicadoA");
+    String requiereRespStr   = getParameter(fields, "requiere_respuesta");
+    String etiquetasCsv      = getParameter(fields, "etiquetas");
+    String origin            = getParameter(fields, "origin");
+    FileItem fileItem        = fields.get("file");
 
-    String idStr           = getParameter(fields, "id");        
-    String idAreaStr       = getParameter(fields, "id_area");
-    String titulo          = getParameter(fields, "titulo");
-    String tipo            = getParameter(fields, "tipo");
-    String esPlantillaStr  = getParameter(fields, "esPlantilla");
-    String radicadoAStr    = getParameter(fields, "radicadoA");
-    String requiereRespStr = getParameter(fields, "requiere_respuesta");
-    String etiquetasCsv    = getParameter(fields, "etiquetas");
-    FileItem fileItem      = fields.get("file"); 
+    boolean isPlantilla  = "true".equalsIgnoreCase(esPlantillaStr);
+    boolean requiereResp = "true".equalsIgnoreCase(requiereRespStr);
 
-    if (numeroRadicadoStr == null || numeroRadicadoStr.trim().isEmpty()) {
-        out.println("<p style='color:red;'>El campo \"Número de radicado\" es obligatorio.</p>");
-        return;
+    System.out.println("DEBUG guardarDocumento: esPlantillaStr=\"" + esPlantillaStr + "\", isPlantilla=" + isPlantilla);
+    System.out.println("DEBUG guardarDocumento: numero_radicado recibido=\"" + numeroRadicadoStr + "\"");
+
+    if (isPlantilla) {
+        numeroRadicadoStr = "N/A";
+    } else {
+        if (numeroRadicadoStr == null || numeroRadicadoStr.trim().isEmpty() || "N/A".equalsIgnoreCase(numeroRadicadoStr.trim())) {
+            out.println("<p style='color:red;'>El campo <strong>Número de radicado</strong> es obligatorio para documentos (no plantillas).</p>");
+            return;
+        }
     }
+
     if (titulo == null || titulo.trim().isEmpty()) {
-        out.println("<p style='color:red;'>El campo \"Título\" es obligatorio.</p>");
+        out.println("<p style='color:red;'>El campo <strong>Título</strong> es obligatorio.</p>");
         return;
     }
 
@@ -71,17 +80,15 @@
         return;
     }
 
-    boolean isPlantilla  = "true".equalsIgnoreCase(esPlantillaStr);
-    boolean requiereResp = "true".equalsIgnoreCase(requiereRespStr) || "on".equalsIgnoreCase(requiereRespStr);
-    Integer idArea       = null;
-    Integer radicadoA    = null;
+    Integer idArea    = null;
+    Integer radicadoA = null;
     try {
         if (idAreaStr != null && !idAreaStr.isEmpty()) {
             idArea = Integer.parseInt(idAreaStr);
         }
     } catch(Exception ignore) {}
     try {
-        if (radicadoAStr != null && !radicadoAStr.isEmpty() && !isPlantilla) {
+        if (!isPlantilla && radicadoAStr != null && !radicadoAStr.isEmpty() && !"NA".equalsIgnoreCase(radicadoAStr.trim())) {
             radicadoA = Integer.parseInt(radicadoAStr);
         }
     } catch(Exception ignore) {}
@@ -90,15 +97,25 @@
     boolean huboArchivoNuevo = false;
     if (fileItem != null && fileItem.getSize() > 0) {
         huboArchivoNuevo = true;
-        String uploadsDirPath = application.getRealPath("/") + File.separator + "uploads";
-        File uploadsDir = new File(uploadsDirPath);
-        if (!uploadsDir.exists()) uploadsDir.mkdirs();
 
-        String originalName = new File(fileItem.getName()).getName();
-        File targetFile = new File(uploadsDir, originalName);
-        if (targetFile.exists()) {
-            targetFile.delete();
+        String uploadsDirPath = System.getenv("UPLOADS_DIR");
+        if (uploadsDirPath == null || uploadsDirPath.trim().isEmpty()) {
+            String userHome = System.getProperty("user.home");
+            uploadsDirPath = userHome + File.separator + "uploads_app";
         }
+        File uploadsDir = new File(uploadsDirPath);
+        if (!uploadsDir.exists()) {
+            if (!uploadsDir.mkdirs()) {
+                uploadsDir = new File(application.getRealPath("/") + File.separator + "uploads");
+                if (!uploadsDir.exists()) {
+                    uploadsDir.mkdirs();
+                }
+            }
+        }
+
+        String originalName = new File(fileItem.getName()).getName().replaceAll("\\s+", "_");
+        String uniqueName = System.currentTimeMillis() + "_" + originalName;
+        File targetFile = new File(uploadsDir, uniqueName);
         try (InputStream in = fileItem.getInputStream();
              OutputStream outStream = new FileOutputStream(targetFile)) {
             byte[] buffer = new byte[4096];
@@ -107,13 +124,12 @@
                 outStream.write(buffer, 0, bytesRead);
             }
         }
-        nombreArchivo = originalName;
+        nombreArchivo = uniqueName;
     }
 
     try (Connection conn = conexionBD.conectar()) {
         conn.setAutoCommit(false);
         int docId;
-        String accion;
         String tituloAnterior = null;
 
         if (modoCrear) {
@@ -123,9 +139,9 @@
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?)";
             try (PreparedStatement ps = conn.prepareStatement(insertSQL, PreparedStatement.RETURN_GENERATED_KEYS)) {
                 int idx = 1;
-                ps.setString(idx++, numeroRadicadoStr);
-                ps.setString(idx++, titulo);
-                ps.setString(idx++, (tipo != null ? tipo : ""));
+                ps.setString(idx++, numeroRadicadoStr.trim());
+                ps.setString(idx++, titulo.trim());
+                ps.setString(idx++, (tipo != null ? tipo.trim() : ""));
                 if (idArea != null) {
                     ps.setInt(idx++, idArea);
                 } else {
@@ -157,41 +173,66 @@
                     }
                 }
             }
-            accion = isPlantilla
-                ? "CREAR_PLANTILLA: " + titulo
-                : "CREAR_DOCUMENTO: " + titulo;
 
-            String insertVerSQL = "INSERT INTO version (doc_id, numero, ruta) VALUES (?, 1, ?)";
-            try (PreparedStatement pv = conn.prepareStatement(insertVerSQL)) {
-                pv.setInt(1, docId);
-                pv.setString(2, nombreArchivo);
-                pv.executeUpdate();
+            try (PreparedStatement psAudit = conn.prepareStatement(
+                    "INSERT INTO audit_log (usuario_id, documento_id, accion) VALUES (?, ?, ?)"
+                )) {
+                psAudit.setInt(1, user.getId());
+                psAudit.setInt(2, docId);
+                psAudit.setString(3, "ADICIONAR_DOCUMENTO");
+                psAudit.executeUpdate();
+            }
+
+            if (nombreArchivo != null) {
+                try (PreparedStatement pv = conn.prepareStatement(
+                        "INSERT INTO version (doc_id, numero, ruta) VALUES (?, 1, ?)"
+                    )) {
+                    pv.setInt(1, docId);
+                    pv.setString(2, nombreArchivo);
+                    pv.executeUpdate();
+                }
+            }
+
+            try (PreparedStatement del = conn.prepareStatement(
+                    "DELETE FROM docu_etiqueta WHERE doc_id = ?"
+                )) {
+                del.setInt(1, docId);
+                del.executeUpdate();
+            }
+            if (etiquetasCsv != null && !etiquetasCsv.trim().isEmpty()) {
+                String[] arr = etiquetasCsv.split(",");
+                try (PreparedStatement insEt = conn.prepareStatement(
+                        "INSERT INTO docu_etiqueta (doc_id, etq_id) VALUES (?, ?)"
+                    )) {
+                    for (String sId : arr) {
+                        try {
+                            int etqId = Integer.parseInt(sId.trim());
+                            insEt.setInt(1, docId);
+                            insEt.setInt(2, etqId);
+                            insEt.addBatch();
+                        } catch (NumberFormatException ignore) {}
+                    }
+                    insEt.executeBatch();
+                }
             }
 
             session.setAttribute("globalMessage",
-                "Documento “" + titulo + "” creado correctamente."
+                isPlantilla
+                ? "Plantilla \"" + titulo + "\" creada correctamente."
+                : "Documento \"" + titulo + "\" creado correctamente."
             );
 
         } else {
             docId = Integer.parseInt(idStr);
-
-            String selTituloSQL = "SELECT titulo FROM documento WHERE id = ?";
-            try (PreparedStatement ps0 = conn.prepareStatement(selTituloSQL)) {
+            try (PreparedStatement ps0 = conn.prepareStatement(
+                    "SELECT titulo, nombre_archivo FROM documento WHERE id = ?"
+                )) {
                 ps0.setInt(1, docId);
                 try (ResultSet rs0 = ps0.executeQuery()) {
                     if (rs0.next()) {
                         tituloAnterior = rs0.getString("titulo");
-                    }
-                }
-            }
-
-            if (!huboArchivoNuevo) {
-                String selArchivoSQL = "SELECT nombre_archivo FROM documento WHERE id = ?";
-                try (PreparedStatement ps1 = conn.prepareStatement(selArchivoSQL)) {
-                    ps1.setInt(1, docId);
-                    try (ResultSet rs1 = ps1.executeQuery()) {
-                        if (rs1.next()) {
-                            nombreArchivo = rs1.getString("nombre_archivo");
+                        if (!huboArchivoNuevo) {
+                            nombreArchivo = rs0.getString("nombre_archivo");
                         }
                     }
                 }
@@ -199,7 +240,7 @@
 
             String updateSQL =
                 "UPDATE documento SET " +
-                " numero_radicado = ?, " +  
+                " numero_radicado = ?, " +
                 " titulo = ?, " +
                 " tipo = ?, " +
                 " id_area = ?, " +
@@ -211,9 +252,9 @@
                 "WHERE id = ?";
             try (PreparedStatement ps = conn.prepareStatement(updateSQL)) {
                 int idx = 1;
-                ps.setString(idx++, numeroRadicadoStr);               
-                ps.setString(idx++, titulo);
-                ps.setString(idx++, (tipo != null ? tipo : ""));
+                ps.setString(idx++, numeroRadicadoStr.trim());
+                ps.setString(idx++, titulo.trim());
+                ps.setString(idx++, (tipo != null ? tipo.trim() : ""));
                 if (idArea != null) {
                     ps.setInt(idx++, idArea);
                 } else {
@@ -239,14 +280,20 @@
                 ps.executeUpdate();
             }
 
-            accion = isPlantilla
-                ? "EDITAR_PLANTILLA: " + (tituloAnterior != null ? (tituloAnterior + " → " + titulo) : titulo)
-                : "EDITAR_DOCUMENTO: " + (tituloAnterior != null ? (tituloAnterior + " → " + titulo) : titulo);
+            try (PreparedStatement psAudit = conn.prepareStatement(
+                    "INSERT INTO audit_log (usuario_id, documento_id, accion) VALUES (?, ?, ?)"
+                )) {
+                psAudit.setInt(1, user.getId());
+                psAudit.setInt(2, docId);
+                psAudit.setString(3, "EDITAR_DOCUMENTO");
+                psAudit.executeUpdate();
+            }
 
-            if (huboArchivoNuevo) {
+            if (huboArchivoNuevo && nombreArchivo != null) {
                 int siguienteNumero = 1;
-                String selMaxSQL = "SELECT COALESCE(MAX(numero), 0) AS max_num FROM version WHERE doc_id = ?";
-                try (PreparedStatement pm = conn.prepareStatement(selMaxSQL)) {
+                try (PreparedStatement pm = conn.prepareStatement(
+                        "SELECT COALESCE(MAX(numero), 0) AS max_num FROM version WHERE doc_id = ?"
+                    )) {
                     pm.setInt(1, docId);
                     try (ResultSet rm = pm.executeQuery()) {
                         if (rm.next()) {
@@ -254,8 +301,9 @@
                         }
                     }
                 }
-                String insertVerSQL = "INSERT INTO version (doc_id, numero, ruta) VALUES (?, ?, ?)";
-                try (PreparedStatement pv = conn.prepareStatement(insertVerSQL)) {
+                try (PreparedStatement pv = conn.prepareStatement(
+                        "INSERT INTO version (doc_id, numero, ruta) VALUES (?, ?, ?)"
+                    )) {
                     pv.setInt(1, docId);
                     pv.setInt(2, siguienteNumero);
                     pv.setString(3, nombreArchivo);
@@ -263,14 +311,42 @@
                 }
             }
 
+            try (PreparedStatement del = conn.prepareStatement(
+                    "DELETE FROM docu_etiqueta WHERE doc_id = ?"
+                )) {
+                del.setInt(1, docId);
+                del.executeUpdate();
+            }
+            if (etiquetasCsv != null && !etiquetasCsv.trim().isEmpty()) {
+                String[] arr = etiquetasCsv.split(",");
+                try (PreparedStatement insEt = conn.prepareStatement(
+                        "INSERT INTO docu_etiqueta (doc_id, etq_id) VALUES (?, ?)"
+                    )) {
+                    for (String sId : arr) {
+                        try {
+                            int etqId = Integer.parseInt(sId.trim());
+                            insEt.setInt(1, docId);
+                            insEt.setInt(2, etqId);
+                            insEt.addBatch();
+                        } catch (NumberFormatException ignore) {}
+                    }
+                    insEt.executeBatch();
+                }
+            }
+
             session.setAttribute("globalMessage",
-                "Documento “" + (tituloAnterior != null ? (tituloAnterior + " → " + titulo) : titulo) + "” actualizado correctamente."
+                isPlantilla
+                ? "Plantilla \"" + (tituloAnterior != null ? (tituloAnterior + "\" actualizada a \"" + titulo) : titulo) + "\" correctamente."
+                : "Documento \"" + (tituloAnterior != null ? (tituloAnterior + "\" actualizado a \"" + titulo) : titulo) + "\" correctamente."
             );
         }
 
-
         conn.commit();
-        response.sendRedirect("documento.jsp");
+        if ("plantilla".equals(origin)) {
+            response.sendRedirect("documentoPlantilla.jsp");
+        } else {
+            response.sendRedirect("documento.jsp");
+        }
         return;
 
     } catch (SQLException sq) {

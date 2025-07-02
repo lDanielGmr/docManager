@@ -463,7 +463,7 @@
 
     if (openBtn) {
       openBtn.onclick = () => {
-        iframe.src          = ctx + '/adicionarDocumento.jsp?plantilla=true';
+            iframe.src = ctx + '/adicionarDocumento.jsp?origin=plantilla';
         modal.style.display = 'flex';
       };
     }
@@ -580,4 +580,3 @@
   </script>
 </body>
 </html>
-a

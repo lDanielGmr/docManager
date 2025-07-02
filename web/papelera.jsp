@@ -51,7 +51,7 @@
                      PreparedStatement pst = conn.prepareStatement(sql)) {
                     pst.setInt(1, userIdAJAX);
                     pst.setInt(2, userIdAJAX);
-                    pst.setString(3, term + "%"); // sugerencias que comienzan con term
+                    pst.setString(3, term + "%");
                     try (ResultSet rs = pst.executeQuery()) {
                         while (rs.next()) {
                             String v = ("titulo".equals(ajaxField))

@@ -14,12 +14,21 @@
         return;
     }
 
+    String origin = request.getParameter("origin");
+    boolean fromPlantilla = "plantilla".equals(origin);
+
     String idStr = request.getParameter("id");
     if (idStr == null) {
         out.println("<p style='color:red;'>Falta el parámetro id</p>");
         return;
     }
-    int docId = Integer.parseInt(idStr);
+    int docId;
+    try {
+        docId = Integer.parseInt(idStr);
+    } catch (NumberFormatException e) {
+        out.println("<p style='color:red;'>ID inválido</p>");
+        return;
+    }
 
     Documento doc;
     try {
@@ -32,20 +41,22 @@
         return;
     }
 
-    List<Usuario> usuarios     = Usuario.findAll();
+    List<Usuario> usuarios = Usuario.findAll();
     List<Etiqueta> etiquetasAll = Etiqueta.findAll();
     Set<Integer> etiquetasAsignadas = doc.getEtiquetaIds().stream().collect(Collectors.toSet());
     boolean esPlant = doc.isEsPlantilla();
+    String numeroRadicadoActual = doc.getNumeroRadicado();
+    if (numeroRadicadoActual == null) numeroRadicadoActual = "";
+    Integer radicadoACurr = doc.getRadicadoA(); 
 %>
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>Editar Documento</title>
-  <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
-  <link rel="stylesheet" href="${pageContext.request.contextPath}/css/style.css">
-  <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
-
+  <link rel="stylesheet" href="<%=request.getContextPath()%>/css/fontawesome.css">
+  <link rel="stylesheet" href="<%=request.getContextPath()%>/css/style.css">
+  <link rel="icon" href="<%=request.getContextPath()%>/images/favicon.ico" type="image/x-icon" />
   <style>
     :root {
       --accent: #007bff;
@@ -59,7 +70,7 @@
       font-family: var(--font);
       color: var(--text);
       margin: 0; padding: 20px;
-      background: url('${pageContext.request.contextPath}/images/login-bg.jpg') no-repeat center center fixed;
+      background: url('<%=request.getContextPath()%>/images/login-bg.jpg') no-repeat center center fixed;
       background-size: cover;
     }
     .editor-container {
@@ -75,6 +86,7 @@
       width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;
       font-size: .95rem;
     }
+    input[type="text"][disabled] { background: #e9ecef; }
     input[type="checkbox"] { margin-right: 8px; }
     .inline { display: flex; align-items: center; gap: 8px; }
     .btn { padding: 8px 16px; border: none; border-radius: 4px;
@@ -91,10 +103,24 @@
 
     <form action="guardarDocumento.jsp" method="post" enctype="multipart/form-data">
       <input type="hidden" name="id" value="<%=doc.getId()%>"/>
+      <% if (fromPlantilla || esPlant) { %>
+        <input type="hidden" name="origin" value="plantilla" />
+      <% } %>
 
-s      <div class="form-group inline">
+      <input type="hidden" id="hiddenNumeroRadicado" name="numero_radicado" value="<%= esPlant ? "N/A" : numeroRadicadoActual %>"/>
+
+      <div class="form-group">
+        <label for="numeroRadicadoVisible">Número de Radicado:</label>
+        <input type="text"
+               id="numeroRadicadoVisible"
+               placeholder="<%= esPlant ? "(No aplicable para plantilla)" : "Ingrese número de radicado" %>"
+               value="<%= esPlant ? "N/A" : numeroRadicadoActual %>"
+               <%= esPlant ? "disabled" : "required" %> />
+      </div>
+
+      <div class="form-group inline">
         <label>Archivo actual:</label>
-        <span class="file-current"><%=doc.getNombreArchivo()%></span>
+        <span class="file-current"><%= doc.getNombreArchivo() != null ? doc.getNombreArchivo() : "—" %></span>
       </div>
       <div class="form-group inline">
         <label for="file">Archivo nuevo:</label>
@@ -120,6 +146,12 @@ s      <div class="form-group inline">
       </div>
 
       <div class="form-group inline">
+        <input type="checkbox" id="esPlantilla" name="esPlantilla" value="true"
+               <%= esPlant ? "checked" : "" %> />
+        <label for="esPlantilla">Es plantilla</label>
+      </div>
+
+      <div class="form-group inline">
         <label for="etqs">Etiquetas:</label>
         <select id="etqs" name="etiquetas" multiple size="4">
           <% for (Etiqueta et : etiquetasAll) { %>
@@ -131,12 +163,6 @@ s      <div class="form-group inline">
         </select>
         <button type="button" class="btn btn-secondary"
                 onclick="añadirEtiqueta()">Añadir etiqueta</button>
-      </div>
-
-      <div class="form-group inline">
-        <input type="checkbox" id="esPlantilla" name="esPlantilla"
-               <%= esPlant ? "checked" : "" %> />
-        <label for="esPlantilla">Es plantilla</label>
       </div>
 
       <div class="form-group">
@@ -156,22 +182,25 @@ s      <div class="form-group inline">
 
         <select id="radicadoASelect"
                 name="radicadoA"
-                <%= esPlant ? "style=\"display:none;\"" : "" %>
-                required>
-          <option value="">-- Seleccione --</option>
-          <% for (Usuario u : usuarios) { %>
-            <option value="<%=u.getId()%>"
-              <%= (!esPlant && doc.getRadicadoA() != null && u.getId() == doc.getRadicadoA())
-                  ? "selected" : "" %>>
-              <%=u.getNombre()%>
-            </option>
-          <% } %>
+                <%= esPlant ? "style=\"display:none;\" disabled" : "" %>>
+          <option value=""
+            <%= (radicadoACurr == null) ? "selected" : "" %>>
+            (N/A)
+          </option>
+          <% for (Usuario u : usuarios) {
+               if (radicadoACurr != null && u.getId() == radicadoACurr) {
+          %>
+            <option value="<%=u.getId()%>" selected><%=u.getNombre()%></option>
+          <%   } else { %>
+            <option value="<%=u.getId()%>"><%=u.getNombre()%></option>
+          <%   }
+             } %>
         </select>
       </div>
 
       <div class="form-group inline">
         <button type="submit" id="submitBtn" class="btn btn-primary">
-          <i class="fas fa-save"></i>
+          <i class="fas <%= esPlant ? "fa-save" : "fa-paper-plane" %>"></i>
           <%= esPlant ? "Guardar" : "Enviar" %>
         </button>
         <button type="button" class="btn btn-secondary"
@@ -183,29 +212,57 @@ s      <div class="form-group inline">
   </div>
 
   <script>
-    const chkPlant    = document.getElementById('esPlantilla');
+    const chkPlant = document.getElementById('esPlantilla');
+    const inputVisible = document.getElementById('numeroRadicadoVisible');
+    const inputHidden = document.getElementById('hiddenNumeroRadicado');
     const selRadicado = document.getElementById('radicadoASelect');
     const txtRadicado = document.getElementById('radicadoAText');
     const lblRadicado = document.getElementById('labelRadicadoA');
-    const btnSubmit   = document.getElementById('submitBtn');
 
     function ajustarInterfaz() {
-      if (chkPlant.checked) {
+      const esPlantilla = chkPlant.checked;
+
+      if (esPlantilla) {
+        inputVisible.value = "N/A";
+        inputVisible.disabled = true;
+        inputHidden.value = "N/A";
+
         selRadicado.style.display = 'none';
-        txtRadicado.style.display = '';
         selRadicado.disabled = true;
+
+        txtRadicado.style.display = '';
         lblRadicado.innerText = 'Radicado a: No aplica';
-        btnSubmit.innerHTML = '<i class="fas fa-save"></i> Guardar';
       } else {
-        txtRadicado.style.display = 'none';
+        inputVisible.disabled = false;
+        if (inputHidden.value === "N/A") {
+          inputVisible.value = "";
+          inputHidden.value = "";
+        } else {
+          inputVisible.value = inputHidden.value;
+        }
+
         selRadicado.style.display = '';
         selRadicado.disabled = false;
+
+        txtRadicado.style.display = 'none';
         lblRadicado.innerText = 'Radicado a:';
-        btnSubmit.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
+      }
+
+      if (esPlantilla) {
+        inputVisible.removeAttribute('required');
+      } else {
+        inputVisible.setAttribute('required', '');
       }
     }
 
+    inputVisible.addEventListener('input', function() {
+      if (!chkPlant.checked) {
+        inputHidden.value = inputVisible.value.trim();
+      }
+    });
+
     chkPlant.addEventListener('change', ajustarInterfaz);
+
     ajustarInterfaz();
 
     async function añadirEtiqueta() {

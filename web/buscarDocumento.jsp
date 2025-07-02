@@ -20,36 +20,8 @@
         return;
     }
     int userId = usuarioSesion.getId();
-    int userRolId = -1;
-    String sqlRol = "SELECT rol_id FROM usuario WHERE id = ?";
-    try (Connection cnRol = conexionBD.conectar(); PreparedStatement psRol = cnRol.prepareStatement(sqlRol)) {
-        psRol.setInt(1, userId);
-        try (ResultSet rsRol = psRol.executeQuery()) {
-            if (rsRol.next()) {
-                userRolId = rsRol.getInt("rol_id");
-            }
-        }
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
 
-    boolean canSubirVersion = false;
-    if (userRolId != -1) {
-        String sqlPerm
-                = "SELECT 1 "
-                + "FROM rol_permiso rp "
-                + "JOIN permiso p ON rp.permiso_id = p.id "
-                + "WHERE rp.rol_id = ? AND p.codigo = ?";
-        try (Connection cn2 = conexionBD.conectar(); PreparedStatement psPerm = cn2.prepareStatement(sqlPerm)) {
-            psPerm.setInt(1, userRolId);
-            psPerm.setString(2, "subir_version");
-            try (ResultSet rsPerm = psPerm.executeQuery()) {
-                canSubirVersion = rsPerm.next();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+
     String numeroRadicadoParam = request.getParameter("numeroRadicado");
     String tituloParam = request.getParameter("titulo");
     String fechaDesdeParam = request.getParameter("fechaDesde");
@@ -105,6 +77,7 @@
         if (soloPlantillas) {
             countSb.append(" AND d.es_plantilla = TRUE");
         } else {
+            // Mostrar plantillas o documentos relacionados al usuario
             countSb.append(" AND (d.es_plantilla = TRUE OR d.radicado_a = ? OR d.recibido_por = ?)");
             countParams.add(userId);
             countParams.add(userId);
@@ -158,7 +131,6 @@
         }
 
         try (Connection conn = conexionBD.conectar(); PreparedStatement pstCount = conn.prepareStatement(countSb.toString())) {
-
             for (int i = 0; i < countParams.size(); i++) {
                 pstCount.setObject(i + 1, countParams.get(i));
             }
@@ -250,7 +222,6 @@
         queryParams.add(PAGE_SIZE);
 
         try (Connection conn = conexionBD.conectar(); PreparedStatement pst = conn.prepareStatement(sbq.toString())) {
-
             for (int i = 0; i < queryParams.size(); i++) {
                 pst.setObject(i + 1, queryParams.get(i));
             }
@@ -279,7 +250,6 @@
         <title>Búsqueda Avanzada</title>
         <link rel="stylesheet" href="${pageContext.request.contextPath}/css/fontawesome.css">
         <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
-
         <style>
             :root {
                 --bg: #1f1f2e;
@@ -554,7 +524,7 @@
                             <td colspan="6" style="text-align: center;">No se encontraron documentos</td>
                         </tr>
                         <% } else {
-              for (Map<String, Object> d : resultados) {%>
+                            for (Map<String, Object> d : resultados) { %>
                         <tr>
                             <td><%= d.get("numero_radicado") != null ? d.get("numero_radicado") : ""%></td>
                             <td><%= d.get("titulo")%></td>
@@ -568,17 +538,14 @@
                                 <button onclick="descargar(<%= d.get("id")%>)">
                                     <i class="fas fa-download"></i> Descargar
                                 </button>
-                                <% if (canSubirVersion) {%>
+                                <!-- Botón Editar siempre visible; elimina si no quieres mostrarlo -->
                                 <button onclick="editar(<%= d.get("id")%>)">
                                     <i class="fas fa-edit"></i> Editar
                                 </button>
-                                <% } %>
                             </td>
-
                         </tr>
                         <%   }
-                            }
-                        %>
+                        } %>
                     </tbody>
                 </table>
 
@@ -644,7 +611,7 @@
                     <li class="<%= p == currentPage ? "active" : ""%>">
                         <a href="?page=<%= p%><%= baseParams%>"><%= p%></a>
                     </li>
-                    <% }%>
+                    <% } %>
 
                     <li class="<%= currentPage == totalPages ? "disabled" : ""%>">
                         <a href="?page=<%= currentPage + 1%><%= baseParams%>">&rsaquo;</a>
@@ -653,7 +620,7 @@
                         <a href="?page=<%= totalPages%><%= baseParams%>">&raquo;</a>
                     </li>
                 </ul>
-                <% }%>
+                <% } %>
             </div>
         </div>
 

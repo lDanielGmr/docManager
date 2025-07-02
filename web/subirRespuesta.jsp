@@ -119,29 +119,79 @@
   <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
 
   <style>
-    body { margin:0; padding:20px; font-family:'Poppins',sans-serif; background:#f4f4f4; }
-    .container { max-width:600px; margin:0 auto; background:#fff; padding:20px;
-                 border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
-    h1 { margin:0 0 1rem; font-size:1.5rem; }
-    table { width:100%; border-collapse:collapse; }
-    th, td { padding:8px; border:1px solid #ccc; background:#fff; color:#000; }
-    th { text-align:left; }
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: 'Poppins', sans-serif;
+      background: url('<%=request.getContextPath()%>/images/login-bg.jpg') no-repeat center center fixed;
+      background-size: cover;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 20px;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    h1 {
+      margin: 0 0 1rem;
+      font-size: 1.5rem;
+      color: #333;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+      background: #fff;
+      color: #000;
+    }
+    th {
+      text-align: left;
+    }
     input[type=file] {
-      display:block; width:100%; padding:6px; border:1px solid #ccc;
-      border-radius:4px; background:#fff; color:#000;
+      display: block;
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fff;
+      color: #000;
     }
     button {
-      display:inline-flex; align-items:center; gap:6px;
-      background:#007bff; color:#fff; border:none;
-      padding:8px 16px; font-size:1rem; border-radius:4px; cursor:pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      font-size: 1rem;
+      border-radius: 4px;
+      cursor: pointer;
     }
-    button i { font-size:1.2rem; }
+    button i {
+      font-size: 1.2rem;
+    }
     .message {
-      margin-top:1rem; padding:10px; background:#fff; color:#000;
-      border:1px solid #ccc; border-radius:4px;
+      margin-top: 1rem;
+      padding: 10px;
+      background: #fff;
+      color: #000;
+      border: 1px solid #ccc;
+      border-radius: 4px;
     }
-    .message.error { border-color:#e74c3c; color:#e74c3c; }
-    .message.success { border-color:#2ecc71; color:#2ecc71; }
+    .message.error {
+      border-color: #e74c3c;
+      color: #e74c3c;
+    }
+    .message.success {
+      border-color: #2ecc71;
+      color: #2ecc71;
+    }
   </style>
 </head>
 <body>

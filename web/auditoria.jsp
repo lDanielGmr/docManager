@@ -73,7 +73,6 @@
         e.printStackTrace();
     }
 
-    // Construir la parte de SQL sin filtro de acción
     StringBuilder sqlBase = new StringBuilder(
         "FROM audit_log al " +
         "JOIN usuario u ON al.usuario_id = u.id " +
@@ -438,7 +437,6 @@
                 li.addEventListener('click', function() {
                   input.value = item.titulo;
                   suggestionBox.style.display = 'none';
-                  // Al hacer clic en la sugerencia, aplicar filtro automáticamente:
                   aplicarFiltro();
                 });
                 suggestionBox.appendChild(li);

@@ -1,3 +1,4 @@
+Tú dijiste:
 <%@ page contentType="text/html; charset=UTF-8" language="java" session="true" %>
 <%@ page import="clasesGenericas.Usuario, clasesGenericas.Rol, clasesGenericas.Area" %>
 <%@ include file="menu.jsp" %>
@@ -157,4 +158,4 @@
     </div>
   </div>
 </body>
-</html>
+</html> 

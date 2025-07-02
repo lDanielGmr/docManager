@@ -2,7 +2,13 @@
 <%@ page import="
     java.util.List,
     java.util.Optional,
-    clasesGenericas.Usuario
+    java.util.Set,
+    java.util.HashSet,
+    java.sql.Connection,
+    java.sql.PreparedStatement,
+    java.sql.ResultSet,
+    clasesGenericas.Usuario,
+    ConexionBD.conexionBD
 " %>
 <%@ include file="menu.jsp" %>
 <%
@@ -32,6 +38,39 @@
     int fromIndex = (currentPage - 1) * PAGE_SIZE;
     int toIndex = Math.min(fromIndex + PAGE_SIZE, totalRows);
     List<Usuario> pageList = lista.subList(fromIndex, toIndex);
+
+    Set<Integer> protegidos = new HashSet<>();
+    if (!pageList.isEmpty()) {
+        int n = pageList.size();
+        StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            inClause.append("?");
+            if (i < n - 1) inClause.append(",");
+        }
+        String sqlDoc = 
+            "SELECT recibido_por, radicado_a FROM documento "
+          + "WHERE recibido_por IN (" + inClause + ") "
+          + "   OR radicado_a IN (" + inClause + ")";
+        try (Connection conn = conexionBD.conectar();
+             PreparedStatement ps = conn.prepareStatement(sqlDoc)) {
+            int idx = 1;
+            for (Usuario u : pageList) {
+                ps.setInt(idx++, u.getId());
+            }
+            for (Usuario u : pageList) {
+                ps.setInt(idx++, u.getId());
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int rem = rs.getInt("recibido_por");
+                    int rad = rs.getInt("radicado_a");
+                    protegidos.add(rem);
+                    protegidos.add(rad);
+                }
+            }
+        } catch (Exception e) {
+        }
+    }
 %>
 <!DOCTYPE html>
 <html lang="es">
@@ -41,7 +80,6 @@
   <link rel="stylesheet" href="<%=cp%>/style.css">
   <link rel="stylesheet" href="<%=cp%>/css/fontawesome.css">
   <link rel="icon" href="${pageContext.request.contextPath}/images/favicon.ico" type="image/x-icon" />
-
   <style>
     :root {
       --bg-color: #1f1f2e;
@@ -106,7 +144,6 @@
     .docs-table tr:hover {
       background: #fafafa; cursor: pointer;
     }
-
     .pagination {
       display:flex; justify-content:center; align-items:center;
       gap:8px; margin-top:20px; list-style:none; padding:0; flex-wrap:wrap;
@@ -120,6 +157,10 @@
     .pagination li.disabled a { background:#ccc; color:#666; pointer-events:none; }
     .pagination li.active a {
       background:#4e32a8; font-weight:bold; border:2px solid #fff;
+    }
+    button[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -146,6 +187,7 @@
         <tbody>
         <%
           for (Usuario u : pageList) {
+            boolean tieneDocs = protegidos.contains(u.getId());
         %>
           <tr>
             <td><%= u.getId() %></td>
@@ -157,9 +199,15 @@
               <button onclick="location.href='modificarUsuario.jsp?id=<%=u.getId()%>'">
                 <i class="fas fa-edit"></i> Editar
               </button>
-              <button onclick="location.href='eliminarUsuario.jsp?id=<%=u.getId()%>'">
-                <i class="fas fa-trash-alt"></i> Eliminar
-              </button>
+              <% if (tieneDocs) { %>
+                <button disabled title="No se puede eliminar: usuario con documentos">
+                  <i class="fas fa-trash-alt"></i> Eliminar
+                </button>
+              <% } else { %>
+                <button onclick="location.href='eliminarUsuario.jsp?id=<%=u.getId()%>'">
+                  <i class="fas fa-trash-alt"></i> Eliminar
+                </button>
+              <% } %>
             </td>
           </tr>
         <%
